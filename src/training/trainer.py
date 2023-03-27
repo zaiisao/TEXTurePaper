@@ -38,9 +38,16 @@ class TEXTure:
         self.eval_renders_path = make_path(self.exp_path / 'vis' / 'eval')
         self.final_renders_path = make_path(self.exp_path / 'results')
 
+        # JA: TEXTure uses loguru for custom logs (i.e. alternative to using print() for logs).
+        # The self.init_logger() function simply sets up this custom logging framework.
         self.init_logger()
+
+        # JA: Pyrallis is an alternative to arg parse.
         pyrallis.dump(self.cfg, (self.exp_path / 'config.yaml').open('w'))
 
+        # JA: When requested during generation, images generated with specified view directions
+        # can be used for a specific side of the surface. This is necessary for when one side of
+        # an object has a unique appearance from that of another surface (e.g. a human being)
         self.view_dirs = ['front', 'left', 'back', 'right', 'overhead', 'bottom']
         self.mesh_model = self.init_mesh_model()
         self.diffusion = self.init_diffusion()
@@ -99,6 +106,7 @@ class TEXTure:
         return text_z, text_string
 
     def init_dataloaders(self) -> Dict[str, DataLoader]:
+        # JA: self.cfg.render is a subcategory of config called RenderConfig
         init_train_dataloader = MultiviewDataset(self.cfg.render, device=self.device).dataloader()
 
         val_loader = ViewsDataset(self.cfg.render, device=self.device,
@@ -190,6 +198,8 @@ class TEXTure:
             logger.info(f"\tDone!")
 
     def paint_viewpoint(self, data: Dict[str, Any]):
+        # JA: The main code used for training of a single item in the training dataset.
+        # data represents a single item in the training dataset (MultiviewDataset).
         logger.info(f'--- Painting step #{self.paint_step} ---')
         theta, phi, radius = data['theta'], data['phi'], data['radius']
         # If offset of phi was set from code

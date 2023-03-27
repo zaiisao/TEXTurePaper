@@ -10,6 +10,7 @@ def main(cfg: TrainConfig):
     if cfg.log.eval_only:
         trainer.full_eval()
     else:
+        # JA: In this code, "paint" function corresponds to the training code
         trainer.paint()
 
 

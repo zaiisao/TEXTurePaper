@@ -201,6 +201,8 @@ class TexturedMeshModel(nn.Module):
         return verts
 
     def init_meshes(self, env_sphere_path='shapes/env_sphere.obj'):
+        # JA: When this function is called, env_sphere_path is not defined so it is set to the default path written here.
+        # However, no such file under the name of env_sphere.obj seems to exist.
         env_sphere = Mesh(env_sphere_path, self.device)
 
         mesh = Mesh(self.opt.shape_path, self.device)
