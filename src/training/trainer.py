@@ -133,6 +133,9 @@ class TEXTure:
         pbar = tqdm(total=len(self.dataloaders['train']), initial=self.paint_step,
                     bar_format='{desc}: {percentage:3.0f}% painting step {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
 
+        # JA: Somewhat counterintuitive to the way we normally think of "dataset" or "dataloader" the train dataset and dataloader
+        # simply refer to the properties of every angle. Since n_views config is set to 8, this will iterate eight times (and thus,
+        # self.paint_step will increment from 0 to 7).
         for data in self.dataloaders['train']:
             self.paint_step += 1
             pbar.update(1)
@@ -201,9 +204,9 @@ class TEXTure:
         # JA: The main code used for training of a single item in the training dataset.
         # data represents a single item in the training dataset (MultiviewDataset).
         logger.info(f'--- Painting step #{self.paint_step} ---')
-        theta, phi, radius = data['theta'], data['phi'], data['radius']
+        theta, phi, radius = data['theta'], data['phi'], data['radius'] # JA: Values are in radians
         # If offset of phi was set from code
-        phi = phi - np.deg2rad(self.cfg.render.front_offset)
+        phi = phi - np.deg2rad(self.cfg.render.front_offset) # JA: front_offset is set to 0.0 by default.
         phi = float(phi + 2 * np.pi if phi < 0 else phi)
         logger.info(f'Painting from theta: {theta}, phi: {phi}, radius: {radius}')
 

@@ -115,13 +115,18 @@ class MultiviewDataset:
         self.thetas = [self.cfg.base_theta for _ in range(size)] # JA: [60, 60, 60, 60, 60, 60, 60, 60]
 
         # JA: Reference on "lambda" usage and syntax: https://wikidocs.net/64
+        # The 0th element of alternate_lists remains the 0th element after transformation no matter what.
 
         # Alternate lists
         alternate_lists = lambda l: [l[0]] + [i for j in zip(l[1:size // 2], l[-1:size // 2:-1]) for i in j] + [
             l[size // 2]]
         if self.cfg.alternate_views:
-            self.phis = alternate_lists(self.phis)
-            self.thetas = alternate_lists(self.thetas)
+            self.phis = alternate_lists(self.phis)  # JA: [0, 45, 90, 135, 180, 225, 270, 315] -> [0, 45, 315, 90, 270, 135, 225, 180]
+                                                    # The 0th element of alternate_lists always remains the 0th element after transformation.
+                                                    # For every element after, repeat until there are no more "remaining elements":
+                                                    #   The first remaining element of the original list is placed as the next element of the new list.
+                                                    #   The last remaining element of the original list is placed as the next element of the new list. 
+            self.thetas = alternate_lists(self.thetas) # JA: [60, 60, 60, 60, 60, 60, 60, 60] -> [60, 60, 60, 60, 60, 60, 60, 60]
         logger.info(f'phis: {self.phis}')
         # self.phis = self.phis[1:2]
         # self.thetas = self.thetas[1:2]
