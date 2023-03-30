@@ -206,12 +206,16 @@ class TEXTure:
         logger.info(f'--- Painting step #{self.paint_step} ---')
         theta, phi, radius = data['theta'], data['phi'], data['radius'] # JA: Values are in radians
         # If offset of phi was set from code
-        phi = phi - np.deg2rad(self.cfg.render.front_offset) # JA: front_offset is set to 0.0 by default.
+        phi = phi - np.deg2rad(self.cfg.render.front_offset)    # JA: front_offset is set to 0.0 by default.
+                                                                # Thus, this is effectively just phi = phi - 0.0
+
+        # JA: If phi is negative (e.g. -10 deg), rewrite it to be positive (e.g. 350 deg)
         phi = float(phi + 2 * np.pi if phi < 0 else phi)
+
         logger.info(f'Painting from theta: {theta}, phi: {phi}, radius: {radius}')
 
         # Set background image
-        if self.cfg.guide.use_background_color:
+        if self.cfg.guide.use_background_color: # JA: use_background_color is set to False by default.
             background = torch.Tensor([0, 0.8, 0]).to(self.device)
         else:
             background = F.interpolate(self.back_im.unsqueeze(0),
@@ -223,10 +227,25 @@ class TEXTure:
         render_cache = outputs['render_cache']
         rgb_render_raw = outputs['image']  # Render where missing values have special color
         depth_render = outputs['depth']
+
+        # JA: the render function does an assert function to check that EITHER [theta, phi, radius] OR [render_cache]
+        # is passed to it.
+        # Above the render function is called for the first time, and then the output values are used to input into
+        # the function again right below. If self.paint_step is > 1 (remember that self.paint_step ranges from 0 to
+        # 7), use_median is set to True.
+        # FIND OUT LATER: But what is use_median and why is it being used here?
+
         # Render again with the median value to use as rgb, we shouldn't have color leakage, but just in case
         outputs = self.mesh_model.render(background=background,
                                          render_cache=render_cache, use_median=self.paint_step > 1)
         rgb_render = outputs['image']
+
+        # JA: From the paper:
+        # To keep track of seen regions and the cross-section at which they were previously colored from, we use an
+        # additional meta-texture map N that is updated at every iteration. This additional map can be ef- ficiently
+        # rendered together with the texture map at each it- eration and is used to define the current trimap
+        # partitioning.
+
         # Render meta texture map
         meta_output = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
                                              use_meta_texture=True, render_cache=render_cache)
@@ -242,13 +261,16 @@ class TEXTure:
 
         # text embeddings
         if self.cfg.guide.append_direction:
+            # JA: append_direction is set to True in the configs
+
             dirs = data['dir']  # [B,]
             text_z = self.text_z[dirs]
             text_string = self.text_string[dirs]
         else:
             text_z = self.text_z
             text_string = self.text_string
-        logger.info(f'text: {text_string}')
+        logger.info(f'text: {text_string}') # JA: text_string is only used here to log, and not used anywhere else.
+                                            # JA: However text_z is used underneath when calling stable diffusion.
 
         update_mask, generate_mask, refine_mask = self.calculate_trimap(rgb_render_raw=rgb_render_raw,
                                                                         depth_render=depth_render,
