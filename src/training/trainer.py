@@ -137,7 +137,7 @@ class TEXTure:
         # simply refer to the properties of every angle. Since n_views config is set to 8, this will iterate eight times (and thus,
         # self.paint_step will increment from 0 to 7).
         for i, data in enumerate(self.dataloaders['train']):
-            print(f"Data at iteration {i}: {data}")
+            logger.info(f"Data at iteration {i}: {data}")
             self.paint_step += 1
             pbar.update(1)
             self.paint_viewpoint(data)
