@@ -273,7 +273,7 @@ class TexturedMeshModel(nn.Module):
             run_xatlas = True
 
         if run_xatlas:
-            logger.info('running xatlas to unwrap UVs for mesh: v={v_np.shape} f={f_np.shape}')
+            logger.info(f'running xatlas to unwrap UVs for mesh: v={v_np.shape} f={f_np.shape}')
             # unwrap uvs
             import xatlas
             v_np = self.mesh.vertices.cpu().numpy()
