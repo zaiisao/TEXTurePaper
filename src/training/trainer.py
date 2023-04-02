@@ -314,6 +314,8 @@ class TEXTure:
                                                                     fixed_seed=self.cfg.optim.seed,
                                                                     check_mask=checker_mask,
                                                                     intermediate_vis=self.cfg.log.vis_diffusion_steps)
+        
+        # JA: cropped_rgb_output is the stable diffusion-generated image from the prompt text_z
         self.log_train_image(cropped_rgb_output, name='direct_output')
         self.log_diffusion_steps(steps_vis)
 
