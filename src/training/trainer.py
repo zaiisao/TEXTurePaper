@@ -109,9 +109,12 @@ class TEXTure:
         # JA: self.cfg.render is a subcategory of config called RenderConfig
         init_train_dataloader = MultiviewDataset(self.cfg.render, device=self.device).dataloader()
 
+        # JA: eval_size is the number of angles to sample after training and is set to 10
         val_loader = ViewsDataset(self.cfg.render, device=self.device,
                                   size=self.cfg.log.eval_size).dataloader()
         # Will be used for creating the final video
+
+        # JA: full_eval_size is the number of angles to sample after training and is set to 100
         val_large_loader = ViewsDataset(self.cfg.render, device=self.device,
                                         size=self.cfg.log.full_eval_size).dataloader()
         dataloaders = {'train': init_train_dataloader, 'val': val_loader,

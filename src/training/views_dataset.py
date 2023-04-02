@@ -83,7 +83,7 @@ def circle_poses(device, radius=1.25, theta=60.0, phi=0.0, angle_overhead=30.0, 
     phis = torch.FloatTensor([phi]).to(device)
 
     # JA: Given the theta (camera elevation) and phi (azimuth camera angle),
-    # get an enum value corresponding to view direction
+    # dirs is set to the enum value corresponding to view direction.
     #                   phis [B,];          thetas: [B,]
     # front = 0         [0, front)
     # side (left) = 1   [front, 180)
@@ -136,9 +136,14 @@ class MultiviewDataset:
         #     self.phis =[180,180]+self.phis
         #     self.thetas = [30,150]+self.thetas
 
+        # JA: views_before is an empty list by default
         for phi, theta in self.cfg.views_before:
             self.phis = [phi] + self.phis
             self.thetas = [theta] + self.thetas
+
+        # JA: views_after is a list of tuples consisting of [180, 30], [180, 150] by default, formatted as [phi, theta]
+        # phi       [0, 45, 315, 90, 270, 135, 225, 180] -> [0, 45, 315, 90, 270, 135, 225, 180, 180, 180]
+        # theta     [60, 60, 60, 60, 60, 60, 60, 60]     -> [60, 60, 60, 60, 60, 60, 60, 60, 30, 150]
         for phi, theta in self.cfg.views_after:
             self.phis = self.phis + [phi]
             self.thetas = self.thetas + [theta]
@@ -152,6 +157,8 @@ class MultiviewDataset:
         # B = len(index)  # always 1
 
         # phi = (index[0] / self.size) * 360
+
+        # JA: len(index) is always 1 because we only use a batch size of 1
         phi = self.phis[index[0]]
         theta = self.thetas[index[0]]
         radius = self.cfg.radius
@@ -173,7 +180,8 @@ class MultiviewDataset:
 
     def dataloader(self):
         # JA: Here, list(range(self.size)) is the dataset. self.size is simply the length of phis which
-        # is the same as the self.cfg.n_views.
+        # is the same as the self.cfg.n_views plus the lengths of views_before and views_after.
+        # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         #
         # DataLoader(dataset, batch_size=1, shuffle=False, sampler=None,
         #    batch_sampler=None, num_workers=0, collate_fn=None,
