@@ -51,6 +51,7 @@ class TEXTure:
         self.view_dirs = ['front', 'left', 'back', 'right', 'overhead', 'bottom']
         self.mesh_model = self.init_mesh_model()
         self.diffusion = self.init_diffusion()
+        breakpoint()
         self.text_z, self.text_string = self.calc_text_embeddings()
         self.dataloaders = self.init_dataloaders()
         self.back_im = torch.Tensor(np.array(Image.open(self.cfg.guide.background_img).convert('RGB'))).to(
@@ -140,6 +141,7 @@ class TEXTure:
         # simply refer to the properties of every angle. Since n_views config is set to 8, this will iterate eight times (and thus,
         # self.paint_step will increment from 0 to 7).
         for i, data in enumerate(self.dataloaders['train']):
+            breakpoint()
             logger.info(f"Data at iteration {i}: {data}")
             self.paint_step += 1
             pbar.update(1)
@@ -205,6 +207,7 @@ class TEXTure:
             logger.info(f"\tDone!")
 
     def paint_viewpoint(self, data: Dict[str, Any]):
+        breakpoint()
         # JA: The main code used for training of a single item in the training dataset.
         # data represents a single item in the training dataset (MultiviewDataset).
         logger.info(f'--- Painting step #{self.paint_step} ---')
@@ -330,6 +333,7 @@ class TEXTure:
 
         # Project back
         object_mask = outputs['mask']
+        breakpoint()
         fitted_pred_rgb, _ = self.project_back(render_cache=render_cache, background=background, rgb_output=rgb_output,
                                                object_mask=object_mask, update_mask=update_mask, z_normals=z_normals,
                                                z_normals_cache=z_normals_cache)
@@ -458,6 +462,7 @@ class TEXTure:
     def project_back(self, render_cache: Dict[str, Any], background: Any, rgb_output: torch.Tensor,
                      object_mask: torch.Tensor, update_mask: torch.Tensor, z_normals: torch.Tensor,
                      z_normals_cache: torch.Tensor):
+        breakpoint()
         object_mask = torch.from_numpy(
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
             object_mask.device).unsqueeze(0).unsqueeze(0)

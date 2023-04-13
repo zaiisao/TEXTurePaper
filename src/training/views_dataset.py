@@ -103,6 +103,8 @@ class MultiviewDataset:
     def __init__(self, cfg: RenderConfig, device):
         super().__init__()
 
+        breakpoint()
+
         self.cfg = cfg
         self.device = device
         self.type = type  # train, val, tests
