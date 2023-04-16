@@ -103,7 +103,7 @@ class MultiviewDataset:
     def __init__(self, cfg: RenderConfig, device):
         super().__init__()
 
-        breakpoint()
+        #breakpoint()
 
         self.cfg = cfg
         self.device = device

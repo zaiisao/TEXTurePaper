@@ -125,7 +125,7 @@ class TexturedMeshModel(nn.Module):
         self.env_sphere, self.mesh = self.init_meshes()
         self.default_color = [0.8, 0.1, 0.8]
         self.background_sphere_colors, self.texture_img = self.init_paint()
-        breakpoint()
+        #breakpoint()
         self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
         if self.opt.reference_texture:
             base_texture = torch.Tensor(np.array(Image.open(self.opt.reference_texture).resize(
@@ -221,7 +221,7 @@ class TexturedMeshModel(nn.Module):
         modulated_init_background_bases_latent = init_background_bases[:, None, None, :] * 0.8 + 0.2 * torch.randn(
             num_backgrounds, self.env_sphere.faces.shape[0],
             3, self.num_features, dtype=torch.float32).cuda()
-        breakpoint()
+        #breakpoint()
         background_sphere_colors = nn.Parameter(modulated_init_background_bases_latent.cuda())
 
         if self.initial_texture_path is not None:
@@ -230,7 +230,7 @@ class TexturedMeshModel(nn.Module):
         else:
             texture = torch.ones(1, 3, self.texture_resolution, self.texture_resolution).cuda() * torch.Tensor(
                 self.default_color).reshape(1, 3, 1, 1).cuda()
-        breakpoint()
+        #breakpoint()
         texture_img = nn.Parameter(texture)
         return background_sphere_colors, texture_img
 
