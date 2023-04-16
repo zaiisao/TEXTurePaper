@@ -1,5 +1,5 @@
 log:
-  exp_name: napoleon
+  exp_name: spiderman2
 guide:
   text: "A photo of Spiderman, {} view"
   append_direction: True
