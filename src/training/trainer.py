@@ -97,12 +97,28 @@ class TEXTure:
         else:
             text_z = []
             text_string = []
+
             for d in self.view_dirs:
-                text = ref_text.format(d)
+                negative_prompt = None
+                if d == 'front' and self.cfg.guide.text_front:
+                    text = self.cfg.guide.text_front
+                elif d == 'back' and self.cfg.guide.text_back:
+                    text = self.cfg.guide.text_back
+                elif d == 'left' and self.cfg.guide.text_left:
+                    text = self.cfg.guide.text_left
+                elif d == 'right' and self.cfg.guide.text_right:
+                    text = self.cfg.guide.text_right
+                elif d == 'overhead' and self.cfg.guide.text_overhead:
+                    text = self.cfg.guide.text_overhead
+                elif d == 'bottom' and self.cfg.guide.text_bottom:
+                    text = self.cfg.guide.text_bottom
+                else
+                    text = ref_text.format(d)
+
                 text_string.append(text)
                 logger.info(text)
-                negative_prompt = None
                 logger.info(negative_prompt)
+
                 text_z.append(self.diffusion.get_text_embeds([text], negative_prompt=negative_prompt))
         return text_z, text_string
 

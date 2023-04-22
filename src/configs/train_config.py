@@ -35,6 +35,14 @@ class GuideConfig:
     """ Parameters defining the guidance """
     # Guiding text prompt
     text: str
+
+    text_front: str = None
+    text_left: str = None
+    text_right: str = None
+    text_back: str = None
+    text_overhead: str = None
+    text_bottom: str = None
+
     # The mesh to paint
     shape_path: str = 'shapes/spot_triangulated.obj'
     # Append direction to text prompts
