@@ -112,7 +112,7 @@ class TEXTure:
                     text = self.cfg.guide.text_overhead
                 elif d == 'bottom' and self.cfg.guide.text_bottom:
                     text = self.cfg.guide.text_bottom
-                else
+                else:
                     text = ref_text.format(d)
 
                 text_string.append(text)
