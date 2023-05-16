@@ -247,9 +247,10 @@ class TEXTure:
 
         # Render from viewpoint
         outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
-        render_cache = outputs['render_cache']
+        render_cache = outputs['render_cache'] # 
         rgb_render_raw = outputs['image']  # Render where missing values have special color
-        depth_render = outputs['depth']
+                                            # JA: rgb_render_raw is the Q_t mentioned in the paper
+        depth_render = outputs['depth'] # JA: depth_render is the D_t in the paper
 
         # JA: the render function does an assert function to check that EITHER [theta, phi, radius] OR [render_cache]
         # is passed to it.
@@ -269,7 +270,7 @@ class TEXTure:
         # rendered together with the texture map at each it- eration and is used to define the current trimap
         # partitioning.
 
-        # Render meta texture map
+        # Render meta texture map # JA: This additional map is used for the trimap: the render function is called again using the render_cache created by the first call of render() above.
         meta_output = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
                                              use_meta_texture=True, render_cache=render_cache)
 
@@ -394,25 +395,25 @@ class TEXTure:
                          mask: torch.Tensor):
         diff = (rgb_render_raw.detach() - torch.tensor(self.mesh_model.default_color).view(1, 3, 1, 1).to(
             self.device)).abs().sum(axis=1)
-        exact_generate_mask = (diff < 0.1).float().unsqueeze(0)
+        exact_generate_mask = (diff < 0.1).float().unsqueeze(0) # JA: exact_generate_mask.shape = [1, 1, 1200, 1200]
 
         # Extend mask
         generate_mask = torch.from_numpy(
             cv2.dilate(exact_generate_mask[0, 0].detach().cpu().numpy(), np.ones((19, 19), np.uint8))).to(
-            exact_generate_mask.device).unsqueeze(0).unsqueeze(0)
+            exact_generate_mask.device).unsqueeze(0).unsqueeze(0) # JA: exact_generate_mask[0, 0].shape = [1200, 1200]
 
         update_mask = generate_mask.clone()
 
         object_mask = torch.ones_like(update_mask)
-        object_mask[depth_render == 0] = 0
-        object_mask = torch.from_numpy(
+        object_mask[depth_render == 0] = 0 # JA: depth_render is the D_t of the previous view, D_t = 0 means the area with no object
+        object_mask = torch.from_numpy( # JA: https://nicewoong.github.io/development/2018/01/05/erosion-and-dilation/
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((7, 7), np.uint8))).to(
             object_mask.device).unsqueeze(0).unsqueeze(0)
 
         # Generate the refine mask based on the z normals, and the edited mask
 
         refine_mask = torch.zeros_like(update_mask)
-        refine_mask[z_normals > z_normals_cache[:, :1, :, :] + self.cfg.guide.z_update_thr] = 1
+        refine_mask[z_normals > z_normals_cache[:, :1, :, :] + self.cfg.guide.z_update_thr] = 1 # JA: z_update_thr is 0.2
         if self.cfg.guide.initial_texture is None:
             refine_mask[z_normals_cache[:, :1, :, :] == 0] = 0
         elif self.cfg.guide.reference_texture is not None:
@@ -422,7 +423,7 @@ class TEXTure:
                 mask.device).unsqueeze(0).unsqueeze(0)
             refine_mask[mask == 0] = 0
             # Don't use bad angles here
-            refine_mask[z_normals < 0.4] = 0
+            refine_mask[z_normals < 0.4] = 0 # JA: If the z-normal of the triangle is less than 0.4, the direction of the face normal is bad with respect to the camera direction
         else:
             # Update all regions inside the object
             refine_mask[mask == 0] = 0

@@ -365,7 +365,8 @@ class TexturedMeshModel(nn.Module):
         if render_cache is None:
             assert theta is not None and phi is not None and radius is not None
         background_sphere_colors = self.background_sphere_colors[
-            torch.randint(0, self.background_sphere_colors.shape[0], (1,))]
+            torch.randint(0, self.background_sphere_colors.shape[0], (1,))] # JA: background_sphere_colors.shape: [1, 5120, 3, 3]
+        # torch.randint(0, self.background_sphere_colors.shape[0], (1,)) is always [0]
         if use_meta_texture:
             texture_img = self.meta_texture_img
         else:
@@ -390,6 +391,8 @@ class TexturedMeshModel(nn.Module):
         if background is not None and type(background) == str:
             background_type = background
             use_render_back = True
+        # JA: mask is the image region where there are face indices
+        # pred_features is the interpolated texture map
         pred_features, mask, depth, normals, render_cache = self.renderer.render_single_view_texture(augmented_vertices,
                                                                                                      self.mesh.faces,
                                                                                                      self.face_attributes,
@@ -404,10 +407,10 @@ class TexturedMeshModel(nn.Module):
 
         mask = mask.detach()
 
-        if use_render_back:
+        if use_render_back: # JA: Render the background
             pred_map = pred_features
             pred_back = pred_features
-        else:
+        else: # JA: pred_back is defined differently
             if background is None:
                 pred_back, _, _ = self.renderer.render_single_view(self.env_sphere,
                                                                    background_sphere_colors,

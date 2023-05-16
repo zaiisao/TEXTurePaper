@@ -53,6 +53,7 @@ class StableDiffusion(nn.Module):
         self.image_processor = None
 
         # 3. The UNet model for generating the latents.
+        # JA: self.unet is the depth unet
         self.unet = UNet2DConditionModel.from_pretrained(model_name, subfolder="unet", use_auth_token=self.token).to(
             self.device)
 

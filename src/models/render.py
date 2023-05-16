@@ -82,28 +82,28 @@ class Renderer:
                                                     look_at_height=look_at_height).to(self.device)
             face_vertices_camera, face_vertices_image, face_normals = kal.render.mesh.prepare_vertices(
                 verts.to(self.device), faces.to(self.device), self.camera_projection, camera_transform=camera_transform)
-
+            # JA: face_normals is computed only once and is carried along
             depth_map, _ = kal.render.mesh.rasterize(dims[1], dims[0], face_vertices_camera[:, :, :, -1],
                                                               face_vertices_image, face_vertices_camera[:, :, :, -1:])
             depth_map = self.normalize_depth(depth_map)
 
             uv_features, face_idx = kal.render.mesh.rasterize(dims[1], dims[0], face_vertices_camera[:, :, :, -1],
-                face_vertices_image, uv_face_attr)
-            uv_features = uv_features.detach()
+                face_vertices_image, uv_face_attr) # JA: https://kaolin.readthedocs.io/en/latest/modules/kaolin.render.mesh.html#kaolin.render.mesh.rasterize
+            uv_features = uv_features.detach() # JA: uv_features is the uv coordinates
 
         else:
             # logger.info('Using render cache')
             face_normals, uv_features, face_idx, depth_map = render_cache['face_normals'], render_cache['uv_features'], render_cache['face_idx'], render_cache['depth_map']
-        mask = (face_idx > -1).float()[..., None]
+        mask = (face_idx > -1).float()[..., None] # JA: face_idx = -1 means there is no rendered face corresponding to the pixel. If mask is 1, it means the pixel corresponds to the mesh object.
 
-        image_features = kal.render.mesh.texture_mapping(uv_features, texture_map, mode=self.interpolation_mode)
+        image_features = kal.render.mesh.texture_mapping(uv_features, texture_map, mode=self.interpolation_mode) # JA: Interpolate the texture map according to uv_features
         image_features = image_features * mask
         if background_type == 'white':
             image_features += 1 * (1 - mask)
         elif background_type == 'random':
             image_features += torch.rand((1,1,1,3)).to(self.device) * (1 - mask)
 
-        normals_image = face_normals[0][face_idx, :]
+        normals_image = face_normals[0][face_idx, :] # JA: face_idx ranges from -1 to 7499. face_normals.shape = [1, 7500, 3]
 
         render_cache = {'uv_features':uv_features, 'face_normals':face_normals,'face_idx':face_idx, 'depth_map':depth_map}
 
