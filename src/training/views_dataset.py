@@ -85,12 +85,12 @@ def circle_poses(device, radius=1.25, theta=60.0, phi=0.0, angle_overhead=30.0, 
     # JA: Given the theta (camera elevation) and phi (azimuth camera angle),
     # dirs is set to the enum value corresponding to view direction.
     #                   phis [B,];          thetas: [B,]
-    # front = 0         [0, front)
-    # side (left) = 1   [front, 180)
-    # back = 2          [180, 180+front)
-    # side (right) = 3  [180+front, 360)
-    # top = 4                               [0, overhead]
-    # bottom = 5                            [180-overhead, 180]
+    # front = 0         [0, front = 70)
+    # side (left) = 1   [front = 70, 180)
+    # back = 2          [180, 180+front = 250)
+    # side (right) = 3  [180+front = 250, 360)
+    # top = 4                               [0, overhead = 40]
+    # bottom = 5                            [180-overhead = 140, 180]
     #
     # Although the variables are named plural (thetas, phis), each is simply
     # a tensor with one float.
