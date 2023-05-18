@@ -53,13 +53,13 @@ class Mesh:
     def normalize_mesh(self,inplace=False, target_scale=1, dy=0):
         mesh = self if inplace else copy.deepcopy(self)
 
-        verts = mesh.vertices
+        verts = mesh.vertices  #MJ Size=[3750,3]
         center = verts.mean(dim=0)
         verts = verts - center
         scale = torch.max(torch.norm(verts, p=2, dim=1))
         verts = verts / scale
         verts *= target_scale
-        verts[:, 1] += dy
+        verts[:, 1] += dy  #MJ: verts[:,1] = y coord
         mesh.vertices = verts
         return mesh
 

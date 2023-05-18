@@ -308,7 +308,7 @@ class TEXTure:
             logger.info(f'Update ratio {update_ratio:.5f} is small for an editing step, skipping')
             return
 
-        self.log_train_image(rgb_render * (1 - update_mask), name='masked_input')
+        self.log_train_image(rgb_render * (1 - update_mask), name='masked_input') #MJ: The area to be updated will be zero, black region
         self.log_train_image(rgb_render * refine_mask, name='refine_regions')
 
         # Crop to inner region based on object mask
@@ -462,7 +462,7 @@ class TEXTure:
             self.log_train_image(trimap_vis, 'trimap')
 
         return update_mask, generate_mask, refine_mask
-
+    # checker_mask = self.generate_checkerboard(crop(update_mask), crop(refine_mask), crop(generate_mask))
     def generate_checkerboard(self, update_mask_inner, improve_z_mask_inner, update_mask_base_inner):
         checkerboard = torch.ones((1, 1, 64 // 2, 64 // 2)).to(self.device)
         # Create a checkerboard grid
@@ -471,9 +471,9 @@ class TEXTure:
         checkerboard = F.interpolate(checkerboard,
                                      (512, 512))
         checker_mask = F.interpolate(update_mask_inner, (512, 512))
-        only_old_mask = F.interpolate(torch.bitwise_and(improve_z_mask_inner == 1,
-                                                        update_mask_base_inner == 0).float(), (512, 512))
-        checker_mask[only_old_mask == 1] = checkerboard[only_old_mask == 1]
+        only_old_mask = F.interpolate(torch.bitwise_and(improve_z_mask_inner == 1, #MJ: the area to be refined
+                                                        update_mask_base_inner == 0).float(), (512, 512)) #MJ: the area not to be generated
+        checker_mask[only_old_mask == 1] = checkerboard[only_old_mask == 1] # replace the checkerboard mask into the area to be refined
         return checker_mask
 
     def project_back(self, render_cache: Dict[str, Any], background: Any, rgb_output: torch.Tensor,

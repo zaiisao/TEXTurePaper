@@ -110,8 +110,8 @@ class TexturedMeshModel(nn.Module):
         self.augmentations = augmentations
         self.augment_prob = augment_prob
         self.opt = opt
-        self.dy = self.opt.dy
-        self.mesh_scale = self.opt.shape_scale
+        self.dy = self.opt.dy                  #MJ: dy = 0.25 m?
+        self.mesh_scale = self.opt.shape_scale #MJ: 0.6
         self.texture_resolution = texture_resolution
         if initial_texture_path is not None:
             self.initial_texture_path = initial_texture_path
@@ -123,22 +123,28 @@ class TexturedMeshModel(nn.Module):
         self.renderer = Renderer(device=self.device, dim=(render_grid_size, render_grid_size),
                                  interpolation_mode=self.opt.texture_interpolation_mode)
         self.env_sphere, self.mesh = self.init_meshes()
-        self.default_color = [0.8, 0.1, 0.8]
-        self.background_sphere_colors, self.texture_img = self.init_paint()
+        self.default_color = [0.8, 0.1, 0.8]  #MJ: default_color = purple color?
+        self.background_sphere_colors, self.texture_img = self.init_paint() #MJ: create the background color Parameters and the texture color Parameters
         #breakpoint()
         self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
-        if self.opt.reference_texture:
+        if self.opt.reference_texture: #=None
             base_texture = torch.Tensor(np.array(Image.open(self.opt.reference_texture).resize(
                 (self.texture_resolution, self.texture_resolution)))).permute(2, 0, 1).cuda().unsqueeze(0) / 255.0
             change_mask = (
                     (base_texture.to(self.device) - self.texture_img).abs().sum(axis=1) > 0.1).float()
             with torch.no_grad():
                 self.meta_texture_img[:, 1] = change_mask
-        self.vt, self.ft = self.init_texture_map()
+        self.vt, self.ft = self.init_texture_map()  #MJ: self.vt is the vertex features of shape (4839,2)
+        
+        #MJ:In summary, the function aims to perform the indexing and rearrangement of the vertex features to obtain
+        # a tensor that represents features per vertex per face, 
+        # allowing for subsequent computations or analysis specific to each vertex in relation to its associated face in a mesh.
 
         self.face_attributes = kal.ops.mesh.index_vertices_by_faces(
             self.vt.unsqueeze(0),
-            self.ft.long()).detach()
+            self.ft.long() 
+            ).detach()
+        # self.face_attributes: (batch_size, num_faces, num_vertices, knum)
 
         self.n_eigen_values = 20
         self._L = None
@@ -217,17 +223,18 @@ class TexturedMeshModel(nn.Module):
 
     def init_paint(self, num_backgrounds=1):
         # random color face attributes for background sphere
-        init_background_bases = torch.rand(num_backgrounds, 3).to(self.device)
+        init_background_bases = torch.rand(num_backgrounds, 3).to(self.device) #get three uniform random numbers => random color
         modulated_init_background_bases_latent = init_background_bases[:, None, None, :] * 0.8 + 0.2 * torch.randn(
-            num_backgrounds, self.env_sphere.faces.shape[0],
-            3, self.num_features, dtype=torch.float32).cuda()
+            num_backgrounds, self.env_sphere.faces.shape[0], # self.env_sphere.faces.shape[0] =5120
+            3, self.num_features, dtype=torch.float32).cuda() # self.num_features, dtype=torch.float32).cuda()
+        #breakpoint()=3
         #breakpoint()
-        background_sphere_colors = nn.Parameter(modulated_init_background_bases_latent.cuda())
+        background_sphere_colors = nn.Parameter(modulated_init_background_bases_latent.cuda()) #MJ: colors for every vertex of every face of the background mesh
 
         if self.initial_texture_path is not None:
             texture = torch.Tensor(np.array(Image.open(self.initial_texture_path).resize(
                 (self.texture_resolution, self.texture_resolution)))).permute(2, 0, 1).cuda().unsqueeze(0) / 255.0
-        else:
+        else: #self.initial_texture_path=None: assign the default color (purple) to every pixel of the texture
             texture = torch.ones(1, 3, self.texture_resolution, self.texture_resolution).cuda() * torch.Tensor(
                 self.default_color).reshape(1, 3, 1, 1).cuda()
         #breakpoint()
@@ -269,27 +276,31 @@ class TexturedMeshModel(nn.Module):
             ft = self.mesh.ft.cuda()
             run_xatlas = not (vt.shape[0] == self.mesh.vertices.shape[0] and ft.shape[0] == self.mesh.faces.shape[0])
         elif cache_exists_flag:
-            vt = torch.load(vt_cache).cuda()
-            ft = torch.load(ft_cache).cuda()
+            vt = torch.load(vt_cache).cuda()  #MJ:=(4839,2)
+            ft = torch.load(ft_cache).cuda()  #=(7500,3)
             run_xatlas = not (vt.shape[0] == self.mesh.vertices.shape[0] and ft.shape[0] == self.mesh.faces.shape[0])
         else:
             run_xatlas = True
 
         if run_xatlas:
-            # unwrap uvs
+            # unwrap uvs: 
+            # UV unwrapping refers to the process of creating a 2D representation of a 3D surface's texture coordinates. 
+            # It involves flattening the surface onto a 2D plane,
+            # allowing texture artists to paint or apply textures accurately on the surface.
             import xatlas
-            v_np = self.mesh.vertices.cpu().numpy()
-            f_np = self.mesh.faces.int().cpu().numpy()
+            v_np = self.mesh.vertices.cpu().numpy()  #= (3750,3)
+            f_np = self.mesh.faces.int().cpu().numpy() #=(7500,3)
             logger.info(f'running xatlas to unwrap UVs for mesh: v={v_np.shape} f={f_np.shape}')
             atlas = xatlas.Atlas()
             atlas.add_mesh(v_np, f_np)
             chart_options = xatlas.ChartOptions()
             chart_options.max_iterations = 4
-            atlas.generate(chart_options=chart_options)
-            vmapping, ft_np, vt_np = atlas[0]  # [N], [M, 3], [N, 2]
+            atlas.generate(chart_options=chart_options) #=>  This generates the UV coordinates for the mesh.
+            #MJ: Extract the UV coordinates, face indices, and vertex indices from the atlas  
+            vmapping, ft_np, vt_np = atlas[0]  # [N], [M, 3], [N, 2]  vt_np: (4839,2): there are 4389 vertices and each vertex has 2 UV coordinates
 
-            vt = torch.from_numpy(vt_np.astype(np.float32)).float().cuda()
-            ft = torch.from_numpy(ft_np.astype(np.int64)).int().cuda()
+            vt = torch.from_numpy(vt_np.astype(np.float32)).float().cuda()  #=(4839,2) ?? what is it? => uvs of the vertices
+            ft = torch.from_numpy(ft_np.astype(np.int64)).int().cuda()      #(7500,3)
             if cache_path is not None:
                 os.makedirs(cache_path, exist_ok=True)
                 torch.save(vt.cpu(), vt_cache)
