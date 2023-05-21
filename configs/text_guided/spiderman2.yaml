@@ -3,6 +3,6 @@ log:
 guide:
   text: "A photo of Spiderman, {} view"
   append_direction: True
-  shape_path: shapes/spiderman.obj
+  shape_path: shapes/human.obj
 optim:
   seed: 3

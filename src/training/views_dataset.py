@@ -154,7 +154,7 @@ class MultiviewDataset:
 
         self.size = len(self.phis)
 
-    def collate(self, index):
+    def collate(self, index):  #MJ: get the data items by using the set of indices (index) of the dataset.
 
         # B = len(index)  # always 1
 
@@ -190,7 +190,8 @@ class MultiviewDataset:
         #    pin_memory=False, drop_last=False, timeout=0,
         #    worker_init_fn=None, *, prefetch_factor=2,
         #    persistent_workers=False)
-
+        
+        #MJ: dataset = list(range(self.size))
         loader = DataLoader(list(range(self.size)), batch_size=1, collate_fn=self.collate, shuffle=False,
                             num_workers=0)
         loader._data = self  # an ugly fix... we need to access dataset in trainer.

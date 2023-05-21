@@ -18,11 +18,11 @@ class Mesh:
         else:
             raise ValueError(f"{obj_path} extension not implemented in mesh reader.")
 
-        self.vertices = mesh.vertices.to(device)
-        self.faces = mesh.faces.to(device)
+        self.vertices = mesh.vertices.to(device) #MJ: (2562,3)
+        self.faces = mesh.faces.to(device)       #MJ: (5120,3)
         self.normals, self.face_area = self.calculate_face_normals(self.vertices, self.faces)
-        self.ft = mesh.face_uvs_idx
-        self.vt = mesh.uvs
+        self.ft = mesh.face_uvs_idx #MJ: shape =(5120,3); (num_faces,face_size)
+        self.vt = mesh.uvs  #MJ: shape =(0,2): no uv coord yet; `(num_uvs, 2)`.
 
     @staticmethod
     def calculate_face_normals(vertices: torch.Tensor, faces: torch.Tensor):

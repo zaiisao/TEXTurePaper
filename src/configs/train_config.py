@@ -47,6 +47,8 @@ class GuideConfig:
     shape_path: str = 'shapes/spot_triangulated.obj'
     # Append direction to text prompts
     append_direction: bool = True
+    # used to scale the "{} view" CLIP-generated token embeddings when append_direction is True
+    dir_embed_factor: float = 1.0
     # A Textual-Inversion concept to use
     concept_name: Optional[str] = None
     # Path to the TI embedding

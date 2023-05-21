@@ -111,7 +111,7 @@ class StableDiffusion(nn.Module):
             token_id = self.tokenizer.convert_tokens_to_ids(token)
             self.text_encoder.get_input_embeddings().weight.data[token_id] = embeds
 
-    def get_text_embeds(self, prompt, negative_prompt=None):
+    def get_text_embeds(self, prompt, negative_prompt=None, append_direction=False, dir_embed_factor=1.0):
         # Tokenize text and get embeddings
         text_input = self.tokenizer(prompt, padding='max_length', max_length=self.tokenizer.model_max_length,
                                     truncation=True, return_tensors='pt')
@@ -120,6 +120,11 @@ class StableDiffusion(nn.Module):
 
         with torch.no_grad():
             text_embeddings = self.text_encoder(text_input.input_ids.to(self.device))[0]
+
+        if append_direction:
+            nonzero_text_input_ids_indices = text_input['input_ids'].nonzero().to(text_input['input_ids'].device)
+            text_input_dir_ids_indices = nonzero_text_input_ids_indices[-2:, 1]
+            text_embeddings[0, text_input_dir_ids_indices] *= dir_embed_factor
 
         # Do the same for unconditional embeddings
         if negative_prompt is None:

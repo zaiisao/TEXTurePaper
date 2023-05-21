@@ -110,13 +110,13 @@ class TexturedMeshModel(nn.Module):
         self.augmentations = augmentations
         self.augment_prob = augment_prob
         self.opt = opt
-        self.dy = self.opt.dy                  #MJ: dy = 0.25 m?
+        self.dy = self.opt.dy                  #MJ: dy = 0.25 m = look_at height of the camera
         self.mesh_scale = self.opt.shape_scale #MJ: 0.6
-        self.texture_resolution = texture_resolution
+        self.texture_resolution = texture_resolution #MJ: 1024
         if initial_texture_path is not None:
             self.initial_texture_path = initial_texture_path
         else:
-            self.initial_texture_path = self.opt.initial_texture
+            self.initial_texture_path = self.opt.initial_texture #MJ: None
         self.cache_path = cache_path
         self.num_features = 3
 
@@ -134,15 +134,15 @@ class TexturedMeshModel(nn.Module):
                     (base_texture.to(self.device) - self.texture_img).abs().sum(axis=1) > 0.1).float()
             with torch.no_grad():
                 self.meta_texture_img[:, 1] = change_mask
-        self.vt, self.ft = self.init_texture_map()  #MJ: self.vt is the vertex features of shape (4839,2)
+        self.vt, self.ft = self.init_texture_map()  #MJ: self.vt is the vertex features (uvs) of shape (4839,2);self.ft=face_uvs_idx of shape (num_faces,face_size)=(7500,3)
         
         #MJ:In summary, the function aims to perform the indexing and rearrangement of the vertex features to obtain
         # a tensor that represents features per vertex per face, 
         # allowing for subsequent computations or analysis specific to each vertex in relation to its associated face in a mesh.
 
         self.face_attributes = kal.ops.mesh.index_vertices_by_faces(
-            self.vt.unsqueeze(0),
-            self.ft.long() 
+            self.vt.unsqueeze(0), #MJ: shape = (batch_size}, num_points, knum) =(1,4839,2)
+            self.ft.long()        #MJ: shape = num_faces,face_size)=(7500,3)
             ).detach()
         # self.face_attributes: (batch_size, num_faces, num_vertices, knum)
 
@@ -223,10 +223,10 @@ class TexturedMeshModel(nn.Module):
 
     def init_paint(self, num_backgrounds=1):
         # random color face attributes for background sphere
-        init_background_bases = torch.rand(num_backgrounds, 3).to(self.device) #get three uniform random numbers => random color
+        init_background_bases = torch.rand(num_backgrounds, 3).to(self.device) #get three uniform random numbers of shape (1,3) => random color
         modulated_init_background_bases_latent = init_background_bases[:, None, None, :] * 0.8 + 0.2 * torch.randn(
             num_backgrounds, self.env_sphere.faces.shape[0], # self.env_sphere.faces.shape[0] =5120
-            3, self.num_features, dtype=torch.float32).cuda() # self.num_features, dtype=torch.float32).cuda()
+            3, self.num_features, dtype=torch.float32).cuda() # self.num_features (num of vertices on a face)=3; (1,5120,3,3) + (1,1,1,3)
         #breakpoint()=3
         #breakpoint()
         background_sphere_colors = nn.Parameter(modulated_init_background_bases_latent.cuda()) #MJ: colors for every vertex of every face of the background mesh
@@ -236,7 +236,7 @@ class TexturedMeshModel(nn.Module):
                 (self.texture_resolution, self.texture_resolution)))).permute(2, 0, 1).cuda().unsqueeze(0) / 255.0
         else: #self.initial_texture_path=None: assign the default color (purple) to every pixel of the texture
             texture = torch.ones(1, 3, self.texture_resolution, self.texture_resolution).cuda() * torch.Tensor(
-                self.default_color).reshape(1, 3, 1, 1).cuda()
+                self.default_color).reshape(1, 3, 1, 1).cuda() #MJ: self.texture_resolution=1024; image dim = 1200
         #breakpoint()
         texture_img = nn.Parameter(texture)
         return background_sphere_colors, texture_img
@@ -371,13 +371,14 @@ class TexturedMeshModel(nn.Module):
             fp.write(f'Ns 0.000000 \n')
             fp.write(f'map_Kd {name}albedo.png \n')
 
-    def render(self, theta=None, phi=None, radius=None, background=None,
+    def render(self, theta=None, phi=None, radius=None, background=None, #MJ: background is Not None
                use_meta_texture=False, render_cache=None, use_median=False, dims=None):
         if render_cache is None:
             assert theta is not None and phi is not None and radius is not None
         background_sphere_colors = self.background_sphere_colors[
             torch.randint(0, self.background_sphere_colors.shape[0], (1,))] # JA: background_sphere_colors.shape: [1, 5120, 3, 3]
-        # torch.randint(0, self.background_sphere_colors.shape[0], (1,)) is always [0]
+        # torch.randint(0, self.background_sphere_colors.shape[0], (1,)) is always [0],
+        # with self.background_sphere_colors.shape[0]=1; background_sphere_colors: shape=(5120,3,3)
         if use_meta_texture:
             texture_img = self.meta_texture_img
         else:
@@ -388,14 +389,31 @@ class TexturedMeshModel(nn.Module):
         else:
             augmented_vertices = self.mesh.vertices
 
-        if use_median:
+        #MJ: The following code changes the pixels of texture_img that are close to the default color (purple color) to the average color of the pixels that are NOT close to the default color. 
+        #Note: The same logic that uses the notion of the default color is also used within calculate_trimap():
+        # def calculate_trimap(self, rgb_render_raw: torch.Tensor,
+        #                  depth_render: torch.Tensor,
+        #                  z_normals: torch.Tensor, z_normals_cache: torch.Tensor, edited_mask: torch.Tensor,
+        #                  mask: torch.Tensor):
+        
+        #   diff = (rgb_render_raw.detach() - torch.tensor(self.mesh_model.default_color).view(1, 3, 1, 1).to(
+        #     self.device)).abs().sum(axis=1)
+        #   exact_generate_mask = (diff < 0.1).float().unsqueeze(0) # JA: exact_generate_mask.shape = [1, 1, 1200, 1200] why???
+
+
+
+        if use_median: #MJ: true when self.paint_step > 1
+            #MJ: You could have called  change_default_to_median(self) instead of the following block
+            
             diff = (texture_img - torch.tensor(self.default_color).view(1, 3, 1, 1).to(
                 self.device)).abs().sum(axis=1)
-            default_mask = (diff < 0.1).float().unsqueeze(0)
+            default_mask = (diff < 0.1).float().unsqueeze(0) #MJ: diff: shape=(1,height, width); the 1 pixels
+            # represents pixels close to the default color, purple color. default_mask: shape=(1,1,H,W)
             median_color = texture_img[0, :].reshape(3, -1)[:, default_mask.flatten() == 0].mean(
-                axis=1)
-            texture_img = texture_img.clone()
-            with torch.no_grad():
+                axis=1)  #MJ: median_color is the average of the pixel colors that are NOT close to the default purple color
+            texture_img = texture_img.clone() #MJ:  texture_img[0, :].reshape(3, -1): shape=(3,H*W)
+            with torch.no_grad(): #MJ: median_color: shape=(3,); 
+                # set texture_img so that the pixels close to the default color become the median color 
                 texture_img.reshape(3, -1)[:, default_mask.flatten() == 1] = median_color.reshape(-1, 1)
         background_type = 'none'
         use_render_back = False
@@ -403,10 +421,10 @@ class TexturedMeshModel(nn.Module):
             background_type = background
             use_render_back = True
         # JA: mask is the image region where there are face indices
-        # pred_features is the interpolated texture map
+        # pred_features is the interpolated texture map (R,G,B)'s: image_features = kal.render.mesh.texture_mapping(uv_features, texture_map, mode=self.interpolation_mode) 
         pred_features, mask, depth, normals, render_cache = self.renderer.render_single_view_texture(augmented_vertices,
                                                                                                      self.mesh.faces,
-                                                                                                     self.face_attributes,
+                                                                                                     self.face_attributes, #(1,7500,3,2)
                                                                                                      texture_img,
                                                                                                      elev=theta,
                                                                                                      azim=phi,
@@ -414,17 +432,18 @@ class TexturedMeshModel(nn.Module):
                                                                                                      look_at_height=self.dy,
                                                                                                      render_cache=render_cache,
                                                                                                      dims=dims,
-                                                                                                     background_type=background_type)
+                                                                                                     background_type=background_type) #MJ: background_type='none'
 
         mask = mask.detach()
 
+        #MJ: Get the predicted background
         if use_render_back: # JA: Render the background
             pred_map = pred_features
             pred_back = pred_features
         else: # JA: pred_back is defined differently
-            if background is None:
+            if background is None: #MJ: use env_sphere and background_sphere_colors to get the background
                 pred_back, _, _ = self.renderer.render_single_view(self.env_sphere,
-                                                                   background_sphere_colors,
+                                                                   background_sphere_colors, #(1,5120,3,3)
                                                                    elev=theta,
                                                                    azim=phi,
                                                                    radius=radius,
@@ -432,9 +451,9 @@ class TexturedMeshModel(nn.Module):
                                                                    look_at_height=self.dy, calc_depth=False)
             elif len(background.shape) == 1:
                 pred_back = torch.ones_like(pred_features) * background.reshape(1, 3, 1, 1)
-            else:
+            else:  #MJ: this is the case: 
                 pred_back = background
-
+            # MJ: Combine the predicted features and the predicted background to get pred_map
             pred_map = pred_back * (1 - mask) + pred_features * mask
 
         if not use_meta_texture:

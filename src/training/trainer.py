@@ -56,7 +56,7 @@ class TEXTure:
         self.dataloaders = self.init_dataloaders()
         self.back_im = torch.Tensor(np.array(Image.open(self.cfg.guide.background_img).convert('RGB'))).to(
             self.device).permute(2, 0,
-                                 1) / 255.0
+                                 1) / 255.0  #MJ: brick wall image
 
         logger.info(f'Successfully initialized {self.cfg.log.exp_name}')
 
@@ -119,7 +119,12 @@ class TEXTure:
                 logger.info(text)
                 logger.info(negative_prompt)
 
-                text_z.append(self.diffusion.get_text_embeds([text], negative_prompt=negative_prompt))
+                text_z.append(self.diffusion.get_text_embeds(
+                    [text],
+                    negative_prompt=negative_prompt,
+                    append_direction=self.cfg.guide.append_direction,
+                    dir_embed_factor=self.cfg.guide.dir_embed_factor
+                ))
         return text_z, text_string
 
     def init_dataloaders(self) -> Dict[str, DataLoader]:
@@ -154,8 +159,18 @@ class TEXTure:
                     bar_format='{desc}: {percentage:3.0f}% painting step {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
 
         # JA: Somewhat counterintuitive to the way we normally think of "dataset" or "dataloader" the train dataset and dataloader
-        # simply refer to the properties of every angle. Since n_views config is set to 8, this will iterate eight times (and thus,
-        # self.paint_step will increment from 0 to 7).
+        # simply refer to the properties of every angle.
+        #=>MJ: But in fact, dataset plays the same role as the usual dataset; 
+        # The only difference is that the target/label of each input camera view in the dataset is obtained from the image generated
+        # by the stable diffusion pipeline, which generates images from the text prompt, the depth, and the reference image for inpainting.
+        
+        #MJ: The following loop is the "batch loop" which takes each batch (with batch size =1) from the dataloader;
+        #MJ: It also uses only one epoch; It loops over the dataset only once. But we would need to scan over the dataset several times
+        #    using different orders of view; The learning of the texture atals is different depending on this order, so we need to get the
+        # avergage result from using many different orders. 
+        
+        #TODO: MJ: Try to add an epoch loop: try different num of epochs.
+        
         for i, data in enumerate(self.dataloaders['train']):
             #breakpoint()
             logger.info(f"Data at iteration {i}: {data}")
@@ -179,7 +194,9 @@ class TEXTure:
         if save_as_video:
             all_preds = []
         for i, data in enumerate(dataloader):
-            preds, textures, depths, normals = self.eval_render(data)
+            
+            preds, textures, depths, normals = self.eval_render(data) 
+            #MJ: preds = the predicted image_features rendered from the face_features defined over each vertex on each face on self.mesh_model
 
             pred = tensor2numpy(preds[0])
 
@@ -224,8 +241,8 @@ class TEXTure:
 
     def paint_viewpoint(self, data: Dict[str, Any]):
         #breakpoint()
-        # JA: The main code used for training of a single item in the training dataset.
-        # data represents a single item in the training dataset (MultiviewDataset).
+        # JA: The main code used for training of the texture altas from a single view in the training dataset.
+        # data represents the information about a single view in the training dataset (MultiviewDataset).
         logger.info(f'--- Painting step #{self.paint_step} ---')
         theta, phi, radius = data['theta'], data['phi'], data['radius'] # JA: Values are in radians
         # If offset of phi was set from code
@@ -240,13 +257,13 @@ class TEXTure:
         # Set background image
         if self.cfg.guide.use_background_color: # JA: use_background_color is set to False by default.
             background = torch.Tensor([0, 0.8, 0]).to(self.device)
-        else:
-            background = F.interpolate(self.back_im.unsqueeze(0),
+        else: #MJ: this is the case
+            background = F.interpolate(self.back_im.unsqueeze(0), #MJ: brick wall image
                                        (self.cfg.render.train_grid_size, self.cfg.render.train_grid_size),
                                        mode='bilinear', align_corners=False)
 
         # Render from viewpoint
-        outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background)
+        outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background) #MJ background=brick wall img
         render_cache = outputs['render_cache'] # 
         rgb_render_raw = outputs['image']  # Render where missing values have special color
                                             # JA: rgb_render_raw is the Q_t mentioned in the paper
@@ -254,29 +271,50 @@ class TEXTure:
 
         # JA: the render function does an assert function to check that EITHER [theta, phi, radius] OR [render_cache]
         # is passed to it.
-        # Above the render function is called for the first time, and then the output values are used to input into
-        # the function again right below. If self.paint_step is > 1 (remember that self.paint_step ranges from 0 to
-        # 7), use_median is set to True.
+        # The  render function is called twice, with different input parameters set.
+        # In the second call: If self.paint_step is > 1 (remember that self.paint_step ranges from 0 to
+        # 7==> MJ: BO. paint_step ranges from 1 to 50, the sampling steps of stable diffusion), use_median is set to True.
         # FIND OUT LATER: But what is use_median and why is it being used here?
 
-        # Render again with the median value to use as rgb, we shouldn't have color leakage, but just in case
-        outputs = self.mesh_model.render(background=background,
+        # Render again **with the median value to use as rgb**, we shouldn't have color leakage, but just in case
+        #MJ: "Color leakage" refers to a phenomenon in which the color from one object or area of an image spills
+        # or bleeds into adjacent regions, resulting in an unwanted blending or mixing of colors. 
+        # It is a common issue encountered in digital imaging and computer graphics.
+        # Addressing color leakage often involves careful color correction, edge refinement, and the use of masking techniques to separate and blend different elements more effectively. Advanced image editing software provides tools and
+        # filters specifically designed to mitigate color leakage and improve overall color accuracy and fidelity.
+        
+        outputs = self.mesh_model.render(background=background, #MJ: background=brick wall img
                                          render_cache=render_cache, use_median=self.paint_step > 1)
         rgb_render = outputs['image']
 
         # JA: From the paper:
         # To keep track of seen regions and the cross-section at which they were previously colored from, we use an
-        # additional meta-texture map N that is updated at every iteration. This additional map can be ef- ficiently
-        # rendered together with the texture map at each it- eration and is used to define the current trimap
+        # additional meta-texture map N that is updated at every view iteration of rendering. This additional map can be ef- ficiently
+        # rendered together with the texture map at each view iteration and is used to define the current trimap
         # partitioning.
 
-        # Render meta texture map # JA: This additional map is used for the trimap: the render function is called again using the render_cache created by the first call of render() above.
-        meta_output = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
+        # Render meta texture map # JA: This additional map is used for the trimap:
+        # MJ: It uses self.meta_texture to produce the image_features, and the meta_texutre is learned
+        # to match the z_normals of the faces in the camera coordinate system.
+        #Note: meta_output: 
+        #  {'image': pred_map, 'mask': mask, 'background': pred_back,
+        #         'foreground': pred_features, 'depth': depth, 'normals': normals, 'render_cache': render_cache,
+        #         'texture_map': texture_img}
+        # Here the value of "image" key = the image_features mentioned above.
+        
+        meta_output = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device), #MJ: rendering of meta-texture using black background
                                              use_meta_texture=True, render_cache=render_cache)
 
-        z_normals = outputs['normals'][:, -1:, :, :].clamp(0, 1)
+        z_normals = outputs['normals'][:, -1:, :, :].clamp(0, 1) #MJ: z_normals was computed by the previous render
         z_normals_cache = meta_output['image'].clamp(0, 1)
-        edited_mask = meta_output['image'].clamp(0, 1)[:, 1:2]
+        #MJ: z_normals_cache: the rendered image of the meta-texutre, which is Parameter to be learned and
+        # is set to zero initially.
+        # z_normals_cache contrains the z_normals of the previous camera view, obtained from the meta_texture;
+        # For the first view, z_normals_cache is zero, because meta_texture is set to zero initially:
+        # self.meta_texture_img = nn.Parameter(torch.zeros_like(self.texture_img))
+        edited_mask = meta_output['image'].clamp(0, 1)[:, 1:2] 
+        #MJ:: shape = (1,1,1200,1200); z_normals_cache: shape=(1,3,1200,1200); meta_output['image'].clamp(0, 1)[:, 1:2] is used
+        # for specific purpose in calculate_tripmap(). But either z_normals_cache or edited_mask is used dependng on the cases
 
         self.log_train_image(rgb_render, 'rendered_input')
         self.log_train_image(depth_render[0, 0], 'depth', colormap=True)
@@ -303,6 +341,8 @@ class TEXTure:
                                                                         edited_mask=edited_mask,
                                                                         mask=outputs['mask'])
 
+        # JA: All values in update_mask are either 0 or 1
+        # update_mask.shape[2] * update_mask.shape[3] = 1440000
         update_ratio = float(update_mask.sum() / (update_mask.shape[2] * update_mask.shape[3]))
         if self.cfg.guide.reference_texture is not None and update_ratio < 0.01:
             logger.info(f'Update ratio {update_ratio:.5f} is small for an editing step, skipping')
@@ -339,6 +379,9 @@ class TEXTure:
         self.log_train_image(cropped_rgb_output, name='direct_output')
         self.log_diffusion_steps(steps_vis)
 
+        # JA: From https://velog.io/@pindum/PyTorch-interpolation
+        # interpolation이 무엇인가 하면 사전적으로는 보간이라는 뜻을 가지며 작은 사이즈의 이미지를 큰 사이즈로 키울 때 사용된다.
+        # 단순히 업샘플링이라고 할 수도 있지만 늘어날 때 중간 값을 적절하게 보간해주는 옵션들을 구체적으로 구현하고 있다.
         cropped_rgb_output = F.interpolate(cropped_rgb_output,
                                            (cropped_rgb_render.shape[2], cropped_rgb_render.shape[3]),
                                            mode='bilinear', align_corners=False)
@@ -393,34 +436,41 @@ class TEXTure:
                          depth_render: torch.Tensor,
                          z_normals: torch.Tensor, z_normals_cache: torch.Tensor, edited_mask: torch.Tensor,
                          mask: torch.Tensor):
+        #MJ: Note that self.texture_img was set to the default color initially to make sense of the
+        # following two lines.
+        
         diff = (rgb_render_raw.detach() - torch.tensor(self.mesh_model.default_color).view(1, 3, 1, 1).to(
             self.device)).abs().sum(axis=1)
         exact_generate_mask = (diff < 0.1).float().unsqueeze(0) # JA: exact_generate_mask.shape = [1, 1, 1200, 1200]
+        #MJ: The area of the rendered image, Q_{t} that are close to the default purple color is the candidate to be 
+        #  generated by the current view of the camera. The texture_img from which 
+        # rgb_render_raw was generated was set to this default color initially. The fact that some area of rgb_rendered_raw 
+        # have the default color means that this area was NOT rendered before.
 
         # Extend mask
         generate_mask = torch.from_numpy(
             cv2.dilate(exact_generate_mask[0, 0].detach().cpu().numpy(), np.ones((19, 19), np.uint8))).to(
             exact_generate_mask.device).unsqueeze(0).unsqueeze(0) # JA: exact_generate_mask[0, 0].shape = [1200, 1200]
 
-        update_mask = generate_mask.clone()
+        update_mask = generate_mask.clone()  #MJ: generate_mask is used to define update_mask
 
-        object_mask = torch.ones_like(update_mask)
+        object_mask = torch.ones_like(update_mask)  ##MJ: how is this object_mask different from 'mask' passed as parameter
         object_mask[depth_render == 0] = 0 # JA: depth_render is the D_t of the previous view, D_t = 0 means the area with no object
         object_mask = torch.from_numpy( # JA: https://nicewoong.github.io/development/2018/01/05/erosion-and-dilation/
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((7, 7), np.uint8))).to(
             object_mask.device).unsqueeze(0).unsqueeze(0)
 
-        # Generate the refine mask based on the z normals, and the edited mask
+        # Generate the refine mask based on the z normals, and the edited mask: The region where the z component of face normal is big enough compared to those obtained in the previous camera view is to be refined. To store the information about the previous camera view, the meta-texture is used!!!
 
-        refine_mask = torch.zeros_like(update_mask)
-        refine_mask[z_normals > z_normals_cache[:, :1, :, :] + self.cfg.guide.z_update_thr] = 1 # JA: z_update_thr is 0.2
-        if self.cfg.guide.initial_texture is None:
+        refine_mask = torch.zeros_like(update_mask) #MJ: z_normals_cache: the rendered image of the meta-texutre:z_normals_cache: shape=(1,3,1200,1200), 3= 3 vertices of the face
+        refine_mask[z_normals > z_normals_cache[:, :1, :, :] + self.cfg.guide.z_update_thr] = 1 # JA: z_update_thr is 0.2; MJ: edited_mask= z_normals_cache[:, :1, :, :]
+        if self.cfg.guide.initial_texture is None: #MJ: this is the case
             refine_mask[z_normals_cache[:, :1, :, :] == 0] = 0
         elif self.cfg.guide.reference_texture is not None:
-            refine_mask[edited_mask == 0] = 0
+            refine_mask[edited_mask == 0] = 0  #MJ: edited_mask: N/A; How would using edited_mask be different from using z_normals_cache[:, :1, :, :]
             refine_mask = torch.from_numpy(
                 cv2.dilate(refine_mask[0, 0].detach().cpu().numpy(), np.ones((31, 31), np.uint8))).to(
-                mask.device).unsqueeze(0).unsqueeze(0)
+                mask.device).unsqueeze(0).unsqueeze(0)  #MJ: mask: N/A
             refine_mask[mask == 0] = 0
             # Don't use bad angles here
             refine_mask[z_normals < 0.4] = 0 # JA: If the z-normal of the triangle is less than 0.4, the direction of the face normal is bad with respect to the camera direction
@@ -434,12 +484,12 @@ class TEXTure:
         refine_mask = torch.from_numpy(
             cv2.dilate(refine_mask[0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
             mask.device).unsqueeze(0).unsqueeze(0)
-        update_mask[refine_mask == 1] = 1
+        update_mask[refine_mask == 1] = 1  #MJ: refine_mask is used to define update_mask.
 
-        update_mask[torch.bitwise_and(object_mask == 0, generate_mask == 0)] = 0
+        update_mask[torch.bitwise_and(object_mask == 0, generate_mask == 0)] = 0 #MJ: generate_mask is used to define update_mask
 
         # Visualize trimap
-        if self.cfg.log.log_images:
+        if self.cfg.log.log_images: #MJ: this is the case
             trimap_vis = utils.color_with_shade(color=[112 / 255.0, 173 / 255.0, 71 / 255.0], z_normals=z_normals)
             trimap_vis[mask.repeat(1, 3, 1, 1) == 0] = 1
             trimap_vis = trimap_vis * (1 - exact_generate_mask) + utils.color_with_shade(
@@ -478,14 +528,14 @@ class TEXTure:
 
     def project_back(self, render_cache: Dict[str, Any], background: Any, rgb_output: torch.Tensor,
                      object_mask: torch.Tensor, update_mask: torch.Tensor, z_normals: torch.Tensor,
-                     z_normals_cache: torch.Tensor):
+                     z_normals_cache: torch.Tensor):  # JA: rgb_output is I_t
         #breakpoint()
-        object_mask = torch.from_numpy(
+        object_mask = torch.from_numpy( 
             cv2.erode(object_mask[0, 0].detach().cpu().numpy(), np.ones((5, 5), np.uint8))).to(
             object_mask.device).unsqueeze(0).unsqueeze(0)
-        render_update_mask = object_mask.clone()
+        render_update_mask = object_mask.clone() # JA: We will update the object part only
 
-        render_update_mask[update_mask == 0] = 0
+        render_update_mask[update_mask == 0] = 0 # JA: within the object region, we will not update where object_mask is 0
 
         blurred_render_update_mask = torch.from_numpy(
             cv2.dilate(render_update_mask[0, 0].detach().cpu().numpy(), np.ones((25, 25), np.uint8))).to(
@@ -497,11 +547,12 @@ class TEXTure:
 
         if self.cfg.guide.strict_projection:
             blurred_render_update_mask[blurred_render_update_mask < 0.5] = 0
-            # Do not use bad normals
-            z_was_better = z_normals + self.cfg.guide.z_update_thr < z_normals_cache[:, :1, :, :]
+            # Do not use bad normals # JA: z-normals represents the z-component of the face normals for each pixel
+            z_was_better = z_normals + self.cfg.guide.z_update_thr < z_normals_cache[:, :1, :, :] # JA: z_update_thr is 0.2
+            # z_was_better = z_normals < z_normals_cache[:, :1, :, :] - self.cfg.guide.z_update_thr # JA: z_update_thr is 0.2
             blurred_render_update_mask[z_was_better] = 0
 
-        render_update_mask = blurred_render_update_mask
+        render_update_mask = blurred_render_update_mask # JA: Set the final render_update_mask
         self.log_train_image(rgb_output * render_update_mask, 'project_back_input')
 
         # Update the normals
@@ -516,11 +567,15 @@ class TEXTure:
             rgb_render = outputs['image']
 
             mask = render_update_mask.flatten()
+            
             masked_pred = rgb_render.reshape(1, rgb_render.shape[1], -1)[:, :, mask > 0]
+            # JA: rgb_output is I_t
+            # 2D tensor is converted to 1D
             masked_target = rgb_output.reshape(1, rgb_output.shape[1], -1)[:, :, mask > 0]
             masked_mask = mask[mask > 0]
+            
             loss = ((masked_pred - masked_target.detach()).pow(2) * masked_mask).mean() + (
-                    (masked_pred - masked_pred.detach()).pow(2) * (1 - masked_mask)).mean()
+                    (masked_pred - masked_pred.detach()).pow(2) * (1 - masked_mask)).mean() # JA: (masked_pred - masked_pred.detach()) should be meaningless
 
             meta_outputs = self.mesh_model.render(background=torch.Tensor([0, 0, 0]).to(self.device),
                                                   use_meta_texture=True, render_cache=render_cache)
@@ -530,7 +585,9 @@ class TEXTure:
                                        current_z_mask == 1][:, :1]
             masked_last_z_normals = z_normals_cache.reshape(1, z_normals_cache.shape[1], -1)[:, :,
                                     current_z_mask == 1][:, :1]
+            
             loss += (masked_current_z_normals - masked_last_z_normals.detach()).pow(2).mean()
+            
             loss.backward()
             optimizer.step()
 
