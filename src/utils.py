@@ -115,8 +115,20 @@ def gaussian_blur(image:torch.Tensor, kernel_size:int, std:int) -> torch.Tensor:
                                           gaussian_filter.unsqueeze(0).unsqueeze(0).cuda(), padding=kernel_size // 2)
     return image
 
+# MJ: When we talk about applying shading to a given color, 
+# it means modifying the color based on the lighting conditions and surface orientation 
+# to create the illusion of depth and highlights/shadows on a surface.
+# Shading is an essential aspect of computer graphics and rendering to make objects appear
+# more realistic.
+
+# The function assumes that the input color represents the color of the surface itself. The function applies shading to this surface color 
+# based on the provided z_normals tensor.
+
+# light_coef: A light_coef value of 0.0 would mean that the shading effect completely replaces the original surface color. In other words, the shading dominates
+# and the resulting color is solely determined by the modified surface normals.
+# No information about the light source => ambient shading. 
 def color_with_shade(color: List[float],z_normals:torch.Tensor,light_coef=0.7):
-    normals_with_light = (light_coef + (1 - light_coef) * z_normals.detach())
+    normals_with_light = (light_coef + (1 - light_coef) * z_normals.detach()) #MJ: z_normals=surface normal along the camera view direction
     shaded_color = torch.tensor(color).view(1, 3, 1, 1).to(
         z_normals.device) * normals_with_light
     return shaded_color

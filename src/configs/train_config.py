@@ -66,7 +66,8 @@ class GuideConfig:
     # Guidance scale for score distillation
     guidance_scale: float = 7.5
     # Use inpainting in relevant iterations
-    use_inpainting: bool = True
+    #use_inpainting: bool = True
+    use_inpainting: bool = False  #MJ: experiment without using inpainting.
     # The texture before editing
     reference_texture: Optional[Path] = None
     # The edited texture
@@ -114,7 +115,7 @@ class LogConfig:
     # Export a mesh
     save_mesh: bool = True
     # Whether to show intermediate diffusion visualizations
-    vis_diffusion_steps: bool = False
+    vis_diffusion_steps: bool = True  ##modified by MJ
     # Whether to log intermediate images
     log_images: bool = True
 

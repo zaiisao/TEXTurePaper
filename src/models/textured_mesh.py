@@ -371,6 +371,7 @@ class TexturedMeshModel(nn.Module):
             fp.write(f'Ns 0.000000 \n')
             fp.write(f'map_Kd {name}albedo.png \n')
 
+    # JA: Here self is the TexturedMeshModel
     def render(self, theta=None, phi=None, radius=None, background=None, #MJ: background is Not None
                use_meta_texture=False, render_cache=None, use_median=False, dims=None):
         if render_cache is None:
@@ -462,7 +463,7 @@ class TexturedMeshModel(nn.Module):
 
         return {'image': pred_map, 'mask': mask, 'background': pred_back,
                 'foreground': pred_features, 'depth': depth, 'normals': normals, 'render_cache': render_cache,
-                'texture_map': texture_img}
+                'texture_map': texture_img} # JA: texture_map is either self.texture_img or self.meta_texture_img (which is the global data)
 
     def draw(self, theta, phi, radius, target_rgb):
         # failed attempt to draw on the texture image

@@ -6,3 +6,5 @@ guide:
   shape_path: shapes/napoleon.obj
 optim:
   seed: 3
+render:
+  alternate_views: False
