@@ -4,6 +4,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
 import os
+import numpy as np
 
 csv_file = '/home/jahn/man_dataset.tsv'
 parquet_file = '/home/jahn/man_dataset.parquet'
@@ -14,10 +15,18 @@ csv_stream = pd.read_csv(csv_file, sep='\t', chunksize=chunksize, low_memory=Fal
 for i, chunk in enumerate(csv_stream):
     print("Chunk", i)
     if i == 0:
-        # Guess the schema of the CSV file from the first chunk
-        parquet_schema = pa.Table.from_pandas(df=chunk).schema
-        # Open a Parquet file for writing
-#         parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='snappy')
+        new_data_frame = pd.DataFrame(data=[], index=["image", "text", "class"]).T
+        # new_parquet_schema = pa.Table.from_pandas(df=new_data_frame).schema
+
+        new_parquet_schema = pa.schema([
+            ('image', pa.struct([
+                ('bytes', pa.binary()),
+                ('path', pa.null())
+            ])),
+            ('text', pa.string()),
+            ('class', pa.string())
+        ])
+        parquet_writer = pq.ParquetWriter(parquet_file, new_parquet_schema, compression='snappy')
 #     # Write CSV chunk to the parquet file
 #     table = pa.Table.from_pandas(chunk, schema=parquet_schema)
 #     parquet_writer.write_table(table)
@@ -73,22 +82,18 @@ for i, chunk in enumerate(csv_stream):
         if not added_to_loaded_images:
             print(f"찾지 못한 이미지 명: {csv_path}")
 
-    print(chunk)
     texts = chunk.text.to_list()
     
     if len(texts) != len(loaded_images):
         print("texts and loaded images count is different")
         raise ValueError
-
+    
     new_data_frame = pd.DataFrame(data=[loaded_images, texts, classes], index=["image", "text", "class"]).T
-    print(new_data_frame)
-    text = chunk.text
-    #print(text, type(text))
-    # print(chunk.Name)
-    # result_to_add = {
-    #     "image": 
-    # }
+    # new_parquet_schema = pa.Table.from_pandas(df=new_data_frame).schema
+    # print(new_parquet_schema)
+    table = pa.Table.from_pandas(new_data_frame)
+    parquet_writer.write_table(table)
 
-
+parquet_writer.close()
 
 # parquet_writer.close()
