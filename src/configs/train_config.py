@@ -66,8 +66,8 @@ class GuideConfig:
     # Guidance scale for score distillation
     guidance_scale: float = 7.5
     # Use inpainting in relevant iterations
-    #use_inpainting: bool = True
-    use_inpainting: bool = False  #MJ: experiment without using inpainting.
+    use_inpainting: bool = True
+    
     # The texture before editing
     reference_texture: Optional[Path] = None
     # The edited texture

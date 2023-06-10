@@ -185,15 +185,15 @@ class StableDiffusion(nn.Module):
                    masked_latents=None):
             self.scheduler.set_timesteps(num_inference_steps)
             noise = None
-            if latents is None:
-                # Last channel of the unet tensor is reserved for depth
+            if latents is None: #MJ: The ordinary Stable Diffusion pipeline is not given z_T but uses z_T set to the pure random noise
+                # z_T = the pure random image; The last channel of z_T is reserved for depth
                 latents = torch.randn(
                     (
                         text_embeddings.shape[0] // 2, self.unet.in_channels - 1, depth_mask.shape[2],
                         depth_mask.shape[3]),
                     device=self.device)
                 timesteps = self.scheduler.timesteps
-            else: #MJ: latents given
+            else: #MJ: latents given as Q-T=cropped_rgb_render: assume the in-painting mode
                 # Strength has meaning only when latents are given
                 timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength)
                                 
@@ -202,18 +202,23 @@ class StableDiffusion(nn.Module):
                 if fixed_seed is not None:
                     seed_everything(fixed_seed)
                 noise = torch.randn_like(latents)
-                if update_mask is not None: #MJ: use inpainting or depth-conditioned sd using update_mask
+                
+                if update_mask is not None: #MJ: using update_mask => assume in-painting;  using inpaint means using update_mask=> because gt_latents is given
                     # NOTE: I think we might want to use same noise?
-                    gt_latents = latents  #MJ: latents = cropped_rgb_render = Q_t
-                    latents = torch.randn( #MJ: self.unet.in_channels =5
+                    gt_latents = latents  #MJ: gt_latents = latents = cropped_rgb_render = Q_t
+                    latents = torch.randn( #MJ: self.unet.in_channels =5  #MJ: latents = z_T = pure random image
                         (text_embeddings.shape[0] // 2, self.unet.in_channels - 1, depth_mask.shape[2],
                          depth_mask.shape[3]),
                         device=self.device)
-                else: #MJ: update_mask= None:  inpainting or depth_conditioned image gen without using update-mask: latents = cropped_rgb_render = Q_t: get the random noise latents at timestep = [981] from the input Q_t
+                    
+                else: #MJ: update_mask= None:  assumes not inpainting: get the random noise latents at timestep = [981] from the input Q_t
                     latents = self.scheduler.add_noise(latents, noise, latent_timestep) #MJ: we not use this case, because update_mask is not None
 
             depth_mask = torch.cat([depth_mask] * 2)
-
+            #MJ:
+            # When applying M_depth (case B), the noised latent is guided by the current depth Dt 
+            # while when applying M_paint (case A), the sampling process is tasked with
+            # completing the “generate” regions in a globally-consistent manner, using latent_image and update_mask/latent_mask
             with torch.autocast('cuda'):
                 #Denoise the initial random latents for timesteps (51 timesteps)
                 for i, t in tqdm(enumerate(timesteps)):
@@ -222,37 +227,55 @@ class StableDiffusion(nn.Module):
                     mask_constraints_iters = True  # i < 20
                     is_inpaint_iter = is_inpaint_range  # and i %2 == 1
 
-                    if not is_inpaint_range and mask_constraints_iters: #MJ: i is outside of the range (10 < i < 20): use depth-conditioned sd
-                        if update_mask is not None: #MJ:  use depth_conditioned sd  using update_mask
-                            #MJ: get the noised version of Q_t at time t
+                    if not is_inpaint_range and mask_constraints_iters: #MJ: not in_painting mode:  use *****depth-conditioned sd****
+                        
+                        if update_mask is not None: #MJ: The update-mask is given.
+                            #MJ: get the noised version of gt_latents, Q_t (t=viewpoint),  at time t, which is decreased for each iteration
                             noised_truth = self.scheduler.add_noise(gt_latents, noise, t)
                             
                             if check_mask is not None and i < int(len(timesteps) * check_mask_iters): #MJ:(len(timesteps) * check_mask_iters=50*0.5=25 
                                 curr_mask = check_mask
                             else: #MJ:  check_mask =None or the denoising step i is not less than 25:  use update_mask as the current mask for inpainting
                                 curr_mask = update_mask
-                            # latents is the current denoised latents, set to pure random image initially, whose masked region latents * curr_mask  will be created by sd.    
+                               
+                            #As the depth-to-image diffusion process was trained to generate an entire image, we must
+                            # modify the sampling process to "keep" part of the iamge fixed.    
+                            # That is, for 'keep' region, we simply set z_t fixed according to their original values 
+                             
+                            # latents on on rhs is the current denoised latents, set to pure random image initially,
+                            # whose updated region, latents * curr_mask,  was the denoised one by  sd, and whose non-updated region, 
+                            #  (1 - curr_mask), will be set to the noised_truth obtained from Q_t. 
+                            
                             latents = latents * curr_mask + noised_truth * (1 - curr_mask) #keep the noised version of Q_t
+                            
                         else: pass  # update_mask= None:  use depth-conditioned sd  without using update_mask; latents will not be masked according to update_mask/check_mask.
                                            
                     # expand the latents if we are doing classifier-free guidance to avoid doing two forward passes.
                     latent_model_input = torch.cat([latents] * 2)
                     latent_model_input = self.scheduler.scale_model_input(latent_model_input,
                                                                           t)  # NOTE: This does nothing
-
-                    if is_inpaint_iter: #MJ: is_inpaint_iter=is_inpaint_range = self.use_inpaint and (10 < i < 20)
-                        latent_mask = torch.cat([update_mask] * 2)
-                        latent_image = torch.cat([masked_latents] * 2)
+                    #NJ: . We observe that applying an inpainting diffusion model Mpaint that was directly trained
+                    # to complete masked regions, results in more consistent generations.
+                    #MJ:  However, this in turn deviates from the conditioning depth Dt and may generate new geometries.
+                    #To benefit from the advantages of both models, we introduce an interleaved process 
+                    # where we alternate between the two models during the INITIAL sampling steps (20 steps), while using Mdepth
+                    # for the last steps (30 steps):
+                    if is_inpaint_iter: #The case A: MJ: is_inpaint_iter=is_inpaint_range = self.use_inpaint and (10 < i < 20)
+                        
+                        latent_mask = torch.cat([update_mask] * 2) #MJ: The region with 1's is the region which is inpainted 
+                        latent_image = torch.cat([masked_latents] * 2) #MJ: masked_latents is the reference input image
                         latent_model_input_inpaint = torch.cat([latent_model_input, latent_mask, latent_image], dim=1)
-                        with torch.no_grad():
+                        
+                        with torch.no_grad(): #MJ: use in-painting pipeline to predict the noise for  in-painting
                             noise_pred_inpaint = \
                                 self.inpaint_unet(latent_model_input_inpaint, t, encoder_hidden_states=text_embeddings)[
                                     'sample']
                             noise_pred = noise_pred_inpaint
-                    else: #MJ: use depth-conditioned sd
+                     
+                    else: #The case B: MJ: use depth-conditioned sd: self.unet is a depth-conditioned unet.
                         latent_model_input_depth = torch.cat([latent_model_input, depth_mask], dim=1)
                         # predict the noise residual
-                        with torch.no_grad():
+                        with torch.no_grad(): # JA: TODO: add class_labels=y to self.unet
                             noise_pred = self.unet(latent_model_input_depth, t, encoder_hidden_states=text_embeddings)[
                                 'sample']
 
@@ -274,27 +297,32 @@ class StableDiffusion(nn.Module):
                         image = Image.fromarray((image[0] * 255).round().astype("uint8"))
                         
                         intermediate_results.append(image)
-                    #the noise_pred is the predicted noise that was added to latents at time t.
-                    # Now get the less noised latents to the previous step.    
+                    #MJ: the noise_pred is the predicted noise that was added to latents at time t.
+                    # Now using this predicted noise, get the less noised latents to the previous step.    
                     latents = self.scheduler.step(noise_pred, t, latents)['prev_sample']
                 #for i, t in tqdm(enumerate(timesteps)):
+                
             return latents
         #def sample(latents, depth_mask, strength, num_inference_steps, update_mask=None, ..)
         
         depth_mask = F.interpolate(depth_mask, size=(64, 64), mode='bicubic',
                                    align_corners=False)
+        
+        #MJ: Define masked_image as masked_latents, which comes from the inputs, Q_t = cropped_rgb_render
         masked_latents = None
-        if inputs is None:
+        
+        if inputs is None:  #MJ: This is not the case in TEXTurePaper code
             latents = None
-        elif latent_mode:
+        elif latent_mode: #MJ: This is not the case in TEXTurePaper code
             latents = inputs
         else:
             pred_rgb_512 = F.interpolate(inputs, (512, 512), mode='bilinear',
                                          align_corners=False)
-            latents = self.encode_imgs(pred_rgb_512) #MJ: latents = inputs =Q_t = cropped_rgb_render
-            if self.use_inpaint: #Using in_painting needs update_mask set; it should not be None.
+            latents = self.encode_imgs(pred_rgb_512) #MJ: latents = the vae encoded version of  inputs =Q_t = cropped_rgb_render
+            
+            if self.use_inpaint: #Using in_painting needs update_mask set; using inpaint means using update_mask
                 update_mask_512 = F.interpolate(update_mask, (512, 512))
-                masked_inputs = pred_rgb_512 * (update_mask_512 < 0.5) + 0.5 * (update_mask_512 >= 0.5)
+                masked_inputs = pred_rgb_512 * (update_mask_512 < 0.5) + 0.5 * (update_mask_512 >= 0.5) #erase the Q_t where the update_mask is greater than 0.5 to get masked_input
                 masked_latents = self.encode_imgs(masked_inputs)
 
         if update_mask is not None:
@@ -302,13 +330,13 @@ class StableDiffusion(nn.Module):
         if check_mask is not None:
             check_mask = F.interpolate(check_mask, (64, 64), mode='nearest')
 
-        depth_mask = 2.0 * (depth_mask - depth_mask.min()) / (depth_mask.max() - depth_mask.min()) - 1.0
+        depth_mask = 2.0 * (depth_mask - depth_mask.min()) / (depth_mask.max() - depth_mask.min()) - 1.0 #(0,1 =(-1,1)
 
         # timestep ~ U(0.02, 0.98) to avoid very high/low noise level
         # t = torch.randint(self.min_step, self.max_step + 1, [1], dtype=torch.long, device=self.device)
         t = (self.min_step + self.max_step) // 2
 
-        with torch.no_grad(): #MJ: latents = inputs = I_t in the default setting
+        with torch.no_grad(): #MJ: latents <= inputs = Q_t; masked_latents = masked_image =masked_input
             target_latents = sample(latents, depth_mask, strength=strength, num_inference_steps=num_inference_steps,
                                     update_mask=update_mask, check_mask=check_mask, masked_latents=masked_latents)
             target_rgb = self.decode_latents(target_latents)

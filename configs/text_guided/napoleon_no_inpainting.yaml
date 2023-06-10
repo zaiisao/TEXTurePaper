@@ -1,0 +1,18 @@
+log:
+  exp_name: napoleon_no_inpainting
+guide:
+  text: "A photo of Napoleon Bonaparte, {} view"
+  text_front: "A photo of Napoleon Bonaparte, front view"
+  text_left: "A photo of Napoleon Bonaparte, left view"
+  text_right: "A photo of Napoleon Bonaparte, right view"
+  text_back: "A photo of Napoleon Bonaparte, back view"
+  text_overhead: "A photo of Napoleon Bonaparte, overhead view"
+  text_bottom: "A photo of Napoleon Bonaparte, bottom view"
+  append_direction: True
+  shape_path: shapes/napoleon.obj
+
+  use_inpainting: False  #MJ: experiment without using inpainting.
+optim:
+  seed: 3
+render:
+  alternate_views: False

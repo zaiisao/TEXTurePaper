@@ -13,7 +13,7 @@ chunksize = 100_000
 csv_stream = pd.read_csv(csv_file, sep='\t', chunksize=chunksize, low_memory=False)
 
 for i, chunk in enumerate(csv_stream):
-    print("Chunk", i)
+    print("Chunk", i, len(chunk))
     if i == 0:
         new_data_frame = pd.DataFrame(data=[], index=["image", "text", "class"]).T
         # new_parquet_schema = pa.Table.from_pandas(df=new_data_frame).schema
@@ -54,15 +54,15 @@ for i, chunk in enumerate(csv_stream):
                 with open(image_path, "rb") as image:
                     image_content = image.read()
                     image_bytes = bytes(image_content)
-                    image_table = {
+                    image_dict = {
                         "bytes": image_bytes,
                         "path": None
                     }
 
-                    loaded_images.append(image_table)
+                    loaded_images.append(image_dict)
 
                 if csv_path.find("topview") != -1:
-                    classes.append("top")
+                    classes.append("overhead")
                 elif csv_path.find("bottomview") != -1:
                     classes.append("bottom")
                 elif csv_path.find("leftview") != -1:
@@ -84,8 +84,8 @@ for i, chunk in enumerate(csv_stream):
 
     texts = chunk.text.to_list()
     
-    if len(texts) != len(loaded_images):
-        print("texts and loaded images count is different")
+    if len(texts) != len(loaded_images) or len(loaded_images) != len(classes):
+        print(f"texts{len(texts)}, loaded images{len(loaded_images)}, and classes{len(classes)} count is different")
         raise ValueError
     
     new_data_frame = pd.DataFrame(data=[loaded_images, texts, classes], index=["image", "text", "class"]).T

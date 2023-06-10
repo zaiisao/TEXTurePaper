@@ -266,7 +266,8 @@ class TEXTure:
         # Render from viewpoint
         outputs = self.mesh_model.render(theta=theta, phi=phi, radius=radius, background=background) #MJ background=brick wall img
         render_cache = outputs['render_cache'] # 
-        rgb_render_raw = outputs['image']  # Render where missing values have special color
+        rgb_render_raw = outputs['image']  # Render where missing values have special color;
+        #MJ: used in self.calculate_trimap(rgb_render_raw=rgb_render_raw,
                                             # JA: rgb_render_raw is the Q_t mentioned in the paper
         depth_render = outputs['depth'] # JA: depth_render is the D_t in the paper
 
@@ -361,6 +362,7 @@ class TEXTure:
             return
 
         self.log_train_image(rgb_render * (1 - update_mask), name='masked_input(region_not_to_be_updated)') #MJ: The area to be updated will be zero, black region
+        self.log_train_image(rgb_render * update_mask, name='masked_input(region_to_be_updated)') #MJ: The area to be updated will be zero, black region
         self.log_train_image(rgb_render * refine_mask, name='region_to_be_refined')
 
         # Crop to inner region based on object mask
@@ -379,36 +381,42 @@ class TEXTure:
                                  'checkerboard_input')
         self.diffusion.use_inpaint = self.cfg.guide.use_inpainting and self.paint_step > 1
 
-        # cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=latents
-        #                                                             cropped_depth_render.detach(),
-        #                                                             guidance_scale=self.cfg.guide.guidance_scale,
-        #                                                             strength=1.0, update_mask=cropped_update_mask,
-        #                                                             fixed_seed=self.cfg.optim.seed,
-        #                                                             check_mask=checker_mask,
-        #                                                             intermediate_vis=self.cfg.log.vis_diffusion_steps)
-        
-        #MJ: experiment 1: try to use img2img_step with setting update_mask and without setting check_mask:
-        
-        # cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=latents
-        #                                                             cropped_depth_render.detach(),
-        #                                                             guidance_scale=self.cfg.guide.guidance_scale,
-        #                                                             strength=1.0, update_mask=cropped_update_mask,
-        #                                                             fixed_seed=self.cfg.optim.seed,
-        #                                                             check_mask=None,
-        #                                                             intermediate_vis=self.cfg.log.vis_diffusion_steps)
-        
-        #MJ: experiment 2: try to use img2img_step without setting update_mask and check_mask: 
-        # In this case, you should set self.diffusion.use_inpainting=False by setting self.cfg.guide.use_inpainting to false
-        
-        cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=latents
-                                                                    cropped_depth_render.detach(),
-                                                                    guidance_scale=self.cfg.guide.guidance_scale,
-                                                                    strength=1.0, update_mask=None,
-                                                                    fixed_seed=self.cfg.optim.seed,
-                                                                    check_mask=None,
-                                                                    intermediate_vis=self.cfg.log.vis_diffusion_steps)
-        
-        
+        experiment_number = 1
+
+        if experiment_number == 1:
+            self.diffusion.use_inpaint = True
+            cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=>latents
+                                                                        cropped_depth_render.detach(),
+                                                                        guidance_scale=self.cfg.guide.guidance_scale,
+                                                                        strength=1.0, update_mask=cropped_update_mask,
+                                                                        fixed_seed=self.cfg.optim.seed,
+                                                                        check_mask=checker_mask,
+                                                                        intermediate_vis=self.cfg.log.vis_diffusion_steps)
+        elif experiment_number == 2:
+            self.diffusion.use_inpaint = True
+            #MJ: experiment 2: try to use img2img_step with setting update_mask and without setting check_mask:
+            cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=latents
+                                                                        cropped_depth_render.detach(),
+                                                                        guidance_scale=self.cfg.guide.guidance_scale,
+                                                                        strength=1.0, update_mask=cropped_update_mask,
+                                                                        fixed_seed=self.cfg.optim.seed,
+                                                                        check_mask=None,
+                                                                        intermediate_vis=self.cfg.log.vis_diffusion_steps)
+        elif experiment_number == 3:
+            self.diffusion.use_inpaint = False
+            #MJ: experiment 3: try to use img2img_step without setting update_mask and check_mask: 
+            # In this case, you should set self.diffusion.use_inpainting=False by setting self.cfg.guide.use_inpainting to false
+            cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=latents
+                                                                        cropped_depth_render.detach(),
+                                                                        guidance_scale=self.cfg.guide.guidance_scale,
+                                                                        strength=1.0, update_mask=None,
+                                                                        fixed_seed=self.cfg.optim.seed,
+                                                                        check_mask=None,
+                                                                        intermediate_vis=self.cfg.log.vis_diffusion_steps)
+        else:
+            raise NotImplementedError
+            
+            
         # JA: cropped_rgb_output is the stable diffusion-generated image from the prompt text_z
         self.log_train_image(cropped_rgb_output, name='cropped_rgb_output_from_sd')
         self.log_diffusion_steps(steps_vis)
@@ -588,7 +596,7 @@ class TEXTure:
             blurred_render_update_mask[blurred_render_update_mask < 0.5] = 0
             # Do not use bad normals # JA: z-normals represents the z-component of the face normals for each pixel
             z_was_better = z_normals + self.cfg.guide.z_update_thr < z_normals_cache[:, :1, :, :] # JA: z_update_thr is 0.2
-            # z_was_better = z_normals < z_normals_cache[:, :1, :, :] - self.cfg.guide.z_update_thr # JA: z_update_thr is 0.2
+            # z_was_better ==  self.cfg.guide.z_update_thr < z_normals_cache[:, :1, :, :] - z_normals # JA: z_update_thr is 0.2
             blurred_render_update_mask[z_was_better] = 0
 
         render_update_mask = blurred_render_update_mask # JA: Set the final render_update_mask

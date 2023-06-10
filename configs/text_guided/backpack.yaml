@@ -1,0 +1,8 @@
+log:
+  exp_name: purse5
+guide:
+  text: "Purse styled with Korean traditional pattern"
+  append_direction: False
+  shape_path: shapes/womanbag.obj
+optim:
+  seed: 4

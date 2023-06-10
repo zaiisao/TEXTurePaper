@@ -1,0 +1,10 @@
+log:
+  exp_name: napoleon_inpainting_update_mask_check_mask
+guide:
+  text: "A photo of Napoleon Bonaparte, {} view"
+  append_direction: True
+  shape_path: shapes/napoleon.obj
+optim:
+  seed: 3
+render:
+  alternate_views: False

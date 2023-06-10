@@ -1,0 +1,14 @@
+log:
+  exp_name: spiderman_low_poly
+guide:
+  text: "A photo of Spiderman, {} view"
+  text_front: "A photo of Spiderman, front view"
+  text_left: "A photo of Spiderman, left view"
+  text_right: "A photo of Spiderman, right view"
+  text_back: "A photo of Spiderman, back view"
+  text_overhead: "A photo of Spiderman, overhead view"
+  text_bottom: "A photo of Spiderman, bottom view"
+  append_direction: True
+  shape_path: shapes/characterlowpoly.obj
+optim:
+  seed: 3
