@@ -43,6 +43,8 @@ class GuideConfig:
     text_overhead: str = None
     text_bottom: str = None
 
+    embeds_path: str = None
+
     # The mesh to paint
     shape_path: str = 'shapes/spot_triangulated.obj'
     # Append direction to text prompts

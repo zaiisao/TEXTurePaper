@@ -51,6 +51,11 @@ class TEXTure:
         self.view_dirs = ['front', 'left', 'back', 'right', 'overhead', 'bottom']
         self.mesh_model = self.init_mesh_model()
         self.diffusion = self.init_diffusion()
+
+        if self.cfg.guide.embeds_path is not None:
+            self.diffusion.load_textual_inversion(self.cfg.guide.embeds_path)
+            logger.info(f'Loaded textual inversion for {self.cfg.guide.embeds_path}')
+
         #breakpoint()
         self.text_z, self.text_string = self.calc_text_embeddings()
         self.dataloaders = self.init_dataloaders()

@@ -1,4 +1,5 @@
 from diffusers import AutoencoderKL, UNet2DConditionModel, PNDMScheduler
+from diffusers.loaders import TextualInversionLoaderMixin
 from huggingface_hub import hf_hub_download
 from transformers import CLIPTextModel, CLIPTokenizer, logging
 
@@ -17,7 +18,8 @@ import numpy as np
 from PIL import Image
 
 
-class StableDiffusion(nn.Module):
+#class StableDiffusion(nn.Module):
+class StableDiffusion(nn.Module, TextualInversionLoaderMixin):
     def __init__(self, device, model_name='CompVis/stable-diffusion-v1-4', concept_name=None, concept_path=None,
                  latent_mode=True,  min_timestep=0.02, max_timestep=0.98, no_noise=False,
                  use_inpaint=False):
@@ -512,3 +514,99 @@ class StableDiffusion(nn.Module):
         imgs = (imgs * 255).round().astype('uint8')
 
         return imgs
+    
+    # def load_textual_inversion(
+    #     self,
+    #     pretrained_model_name_or_path,
+    #     token
+    # ):
+    #     if isinstance(pretrained_model_name_or_path, str):
+    #         pretrained_model_name_or_paths = [pretrained_model_name_or_path]
+    #     else:
+    #         pretrained_model_name_or_paths = pretrained_model_name_or_path
+
+    #     if isinstance(token, str):
+    #         tokens = [token]
+    #     elif token is None:
+    #         tokens = [None] * len(pretrained_model_name_or_paths)
+    #     else:
+    #         tokens = token
+
+    #     if len(pretrained_model_name_or_paths) != len(tokens):
+    #         raise ValueError(
+    #             f"You have passed a list of models of length {len(pretrained_model_name_or_paths)}, and list of tokens of length {len(tokens)}"
+    #             f"Make sure both lists have the same length."
+    #         )
+
+    #     valid_tokens = [t for t in tokens if t is not None]
+    #     if len(set(valid_tokens)) < len(valid_tokens):
+    #         raise ValueError(f"You have passed a list of tokens that contains duplicates: {tokens}")
+
+    #     token_ids_and_embeddings = []
+
+    #     for pretrained_model_name_or_path, token in zip(pretrained_model_name_or_paths, tokens):
+    #         # 1. Load textual inversion file
+    #         model_file = pretrained_model_name_or_path
+    #         # Let's first try to load .safetensors weights
+
+    #         state_dict = torch.load(model_file, map_location="cpu")
+
+    #         # 2. Load token and embedding correcly from file
+    #         if isinstance(state_dict, torch.Tensor):
+    #             if token is None:
+    #                 raise ValueError(
+    #                     "You are trying to load a textual inversion embedding that has been saved as a PyTorch tensor. Make sure to pass the name of the corresponding token in this case: `token=...`."
+    #                 )
+    #             embedding = state_dict
+    #         elif len(state_dict) == 1:
+    #             # diffusers
+    #             loaded_token, embedding = next(iter(state_dict.items()))
+    #         elif "string_to_param" in state_dict:
+    #             # A1111
+    #             loaded_token = state_dict["name"]
+    #             embedding = state_dict["string_to_param"]["*"]
+
+    #         if token is not None and loaded_token != token:
+    #             logger.info(f"The loaded token: {loaded_token} is overwritten by the passed token {token}.")
+    #         else:
+    #             token = loaded_token
+
+    #         embedding = embedding.to(dtype=self.text_encoder.dtype, device=self.text_encoder.device)
+
+    #         # 3. Make sure we don't mess up the tokenizer or text encoder
+    #         vocab = self.tokenizer.get_vocab()
+    #         if token in vocab:
+    #             raise ValueError(
+    #                 f"Token {token} already in tokenizer vocabulary. Please choose a different token name or remove {token} and embedding from the tokenizer and text encoder."
+    #             )
+    #         elif f"{token}_1" in vocab:
+    #             multi_vector_tokens = [token]
+    #             i = 1
+    #             while f"{token}_{i}" in self.tokenizer.added_tokens_encoder:
+    #                 multi_vector_tokens.append(f"{token}_{i}")
+    #                 i += 1
+
+    #             raise ValueError(
+    #                 f"Multi-vector Token {multi_vector_tokens} already in tokenizer vocabulary. Please choose a different token name or remove the {multi_vector_tokens} and embedding from the tokenizer and text encoder."
+    #             )
+
+    #         is_multi_vector = len(embedding.shape) > 1 and embedding.shape[0] > 1
+
+    #         if is_multi_vector:
+    #             tokens = [token] + [f"{token}_{i}" for i in range(1, embedding.shape[0])]
+    #             embeddings = [e for e in embedding]  # noqa: C416
+    #         else:
+    #             tokens = [token]
+    #             embeddings = [embedding[0]] if len(embedding.shape) > 1 else [embedding]
+
+    #         # add tokens and get ids
+    #         self.tokenizer.add_tokens(tokens)
+    #         token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
+    #         token_ids_and_embeddings += zip(token_ids, embeddings)
+
+    #         logger.info(f"Loaded textual inversion embedding for {token}.")
+
+    #     # resize token embeddings and set all new embeddings
+    #     self.text_encoder.resize_token_embeddings(len(self.tokenizer))
+    #     for token_id, embedding in token_ids_and_embeddings:
+    #         self.text_encoder.get_input_embeddings().weight.data[token_id] = embedding

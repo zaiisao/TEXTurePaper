@@ -77,6 +77,9 @@ def log_validation(vae, text_encoder, tokenizer, unet, args, accelerator, weight
     pipeline = pipeline.to(accelerator.device)
     pipeline.set_progress_bar_config(disable=True)
 
+    if args.repo_id_embeds is not None:
+        pipeline.load_textual_inversion(args.repo_id_embeds)
+
     if args.enable_xformers_memory_efficient_attention:
         pipeline.enable_xformers_memory_efficient_attention()
 

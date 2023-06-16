@@ -1,0 +1,7 @@
+log:
+  exp_name: shoes-flowers-2000-2
+guide:
+  text: "Shoes with <korean-flower>"
+  append_direction: False
+  shape_path: shapes/sumin/simplify_shoes_tri.obj
+  embeds_path: /home/jahn/TEXTurePaper/korean-flower/sd-concept-output/learned_embeds-step-2000.bin
