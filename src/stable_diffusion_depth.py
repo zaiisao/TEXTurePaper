@@ -1,5 +1,5 @@
 from diffusers import AutoencoderKL, UNet2DConditionModel, PNDMScheduler
-from diffusers.loaders import TextualInversionLoaderMixin
+#from diffusers.loaders import TextualInversionLoaderMixin
 from huggingface_hub import hf_hub_download
 from transformers import CLIPTextModel, CLIPTokenizer, logging
 
@@ -16,10 +16,11 @@ from tqdm.auto import tqdm
 import cv2
 import numpy as np
 from PIL import Image
+from .prompt_to_prompt.ptp_utils import register_attention_control
 
 
-#class StableDiffusion(nn.Module):
-class StableDiffusion(nn.Module, TextualInversionLoaderMixin):
+class StableDiffusion(nn.Module):
+#class StableDiffusion(nn.Module, TextualInversionLoaderMixin):
     def __init__(self, device, model_name='CompVis/stable-diffusion-v1-4', concept_name=None, concept_path=None,
                  latent_mode=True,  min_timestep=0.02, max_timestep=0.98, no_noise=False,
                  use_inpaint=False):
@@ -177,10 +178,14 @@ class StableDiffusion(nn.Module, TextualInversionLoaderMixin):
 
     def img2img_step(self, text_embeddings, inputs, depth_mask, guidance_scale=100, strength=0.5,
                      num_inference_steps=50, update_mask=None, latent_mode=False, check_mask=None,
-                     fixed_seed=None, check_mask_iters=0.5, intermediate_vis=False):
+                     fixed_seed=None, check_mask_iters=0.5, intermediate_vis=False,
+                     latents_to_reuse=None, controller=None, run_baseline=False):
         # input is 1 3 512 512: Q_t =cropped_rgb_render from renderer
         # depth_mask is 1 1 512 512
         # text_embeddings is 2 512
+
+        register_attention_control(self, controller)
+
         intermediate_results = []
 
         def sample(latents, depth_mask, strength, num_inference_steps, update_mask=None, check_mask=None,
@@ -302,6 +307,7 @@ class StableDiffusion(nn.Module, TextualInversionLoaderMixin):
                     #MJ: the noise_pred is the predicted noise that was added to latents at time t.
                     # Now using this predicted noise, get the less noised latents to the previous step.    
                     latents = self.scheduler.step(noise_pred, t, latents)['prev_sample']
+                    latents = controller.step_callback(latents)
                 #for i, t in tqdm(enumerate(timesteps)):
                 
             return latents
@@ -320,7 +326,11 @@ class StableDiffusion(nn.Module, TextualInversionLoaderMixin):
         else:
             pred_rgb_512 = F.interpolate(inputs, (512, 512), mode='bilinear',
                                          align_corners=False)
-            latents = self.encode_imgs(pred_rgb_512) #MJ: latents = the vae encoded version of  inputs =Q_t = cropped_rgb_render
+            
+            if latents_to_reuse is not None:
+                latents = latents_to_reuse
+            else:
+                latents = self.encode_imgs(pred_rgb_512) #MJ: latents = the vae encoded version of  inputs =Q_t = cropped_rgb_render
             
             if self.use_inpaint: #Using in_painting needs update_mask set; using inpaint means using update_mask
                 update_mask_512 = F.interpolate(update_mask, (512, 512))
@@ -346,7 +356,8 @@ class StableDiffusion(nn.Module, TextualInversionLoaderMixin):
         if latent_mode:
             return target_rgb, target_latents
         else:
-            return target_rgb, intermediate_results
+            #return target_rgb, intermediate_results
+            return target_rgb, intermediate_results, target_latents
 
     def train_step(self, text_embeddings, inputs, depth_mask, guidance_scale=100):
 

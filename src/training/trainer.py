@@ -21,6 +21,7 @@ from src.models.textured_mesh import TexturedMeshModel
 from src.stable_diffusion_depth import StableDiffusion
 from src.training.views_dataset import ViewsDataset, MultiviewDataset
 from src.utils import make_path, tensor2numpy
+from src.prompt_to_prompt.attention_controls import AttentionStore, AttentionReweight, get_equalizer
 
 
 class TEXTure:
@@ -386,45 +387,61 @@ class TEXTure:
                                  'checkerboard_input')
         self.diffusion.use_inpaint = self.cfg.guide.use_inpainting and self.paint_step > 1
 
-        experiment_number = 1
+        controller = AttentionStore()
 
-        if experiment_number == 1:
-            self.diffusion.use_inpaint = True
-            cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=>latents
-                                                                        cropped_depth_render.detach(),
-                                                                        guidance_scale=self.cfg.guide.guidance_scale,
-                                                                        strength=1.0, update_mask=cropped_update_mask,
-                                                                        fixed_seed=self.cfg.optim.seed,
-                                                                        check_mask=checker_mask,
-                                                                        intermediate_vis=self.cfg.log.vis_diffusion_steps)
-        elif experiment_number == 2:
-            self.diffusion.use_inpaint = True
-            #MJ: experiment 2: try to use img2img_step with setting update_mask and without setting check_mask:
-            cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=latents
-                                                                        cropped_depth_render.detach(),
-                                                                        guidance_scale=self.cfg.guide.guidance_scale,
-                                                                        strength=1.0, update_mask=cropped_update_mask,
-                                                                        fixed_seed=self.cfg.optim.seed,
-                                                                        check_mask=None,
-                                                                        intermediate_vis=self.cfg.log.vis_diffusion_steps)
-        elif experiment_number == 3:
-            self.diffusion.use_inpaint = False
-            #MJ: experiment 3: try to use img2img_step without setting update_mask and check_mask: 
-            # In this case, you should set self.diffusion.use_inpainting=False by setting self.cfg.guide.use_inpainting to false
-            cropped_rgb_output, steps_vis = self.diffusion.img2img_step(text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=latents
-                                                                        cropped_depth_render.detach(),
-                                                                        guidance_scale=self.cfg.guide.guidance_scale,
-                                                                        strength=1.0, update_mask=None,
-                                                                        fixed_seed=self.cfg.optim.seed,
-                                                                        check_mask=None,
-                                                                        intermediate_vis=self.cfg.log.vis_diffusion_steps)
-        else:
-            raise NotImplementedError
-            
-            
+        # JA: In the original code num_inference_steps is accepted as an argument in the below function
+        # but not defined outside, thereby resulting in the usage of the default value of 50. However
+        # for prompt to prompt we need the value, so we define it outside.
+        num_inference_steps = 50
+
+        #cropped_rgb_output, steps_vis = self.diffusion.img2img_step(
+        cropped_rgb_output, steps_vis, latents = self.diffusion.img2img_step(
+            text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=>latents
+            cropped_depth_render.detach(),
+            guidance_scale=self.cfg.guide.guidance_scale,
+            strength=1.0, update_mask=cropped_update_mask,
+            fixed_seed=self.cfg.optim.seed,
+            check_mask=checker_mask,
+            intermediate_vis=self.cfg.log.vis_diffusion_steps,
+
+            num_inference_steps=num_inference_steps, # added by JA
+
+            # for prompt to prompt
+            controller=controller,
+            latents_to_reuse=None,
+            run_baseline=False
+        )
+
         # JA: cropped_rgb_output is the stable diffusion-generated image from the prompt text_z
         self.log_train_image(cropped_rgb_output, name='cropped_rgb_output_from_sd')
         self.log_diffusion_steps(steps_vis)
+
+        prompts = [text_string, text_string]
+        equalizer = get_equalizer(prompts[1], tuple(self.view_dirs), (5,), self.diffusion.tokenizer)
+        controller = AttentionReweight(
+            prompts, num_inference_steps, cross_replace_steps=.8,
+            self_replace_steps=.4,
+            equalizer=equalizer,
+            tokenizer=self.diffusion.tokenizer,
+            device=self.device
+        )
+
+        cropped_rgb_output, steps_vis, _ = self.diffusion.img2img_step(
+            text_z, cropped_rgb_render.detach(), #MJ: cropped_rgb_render=Q_t=>latents
+            cropped_depth_render.detach(),
+            guidance_scale=self.cfg.guide.guidance_scale,
+            strength=1.0, update_mask=cropped_update_mask,
+            fixed_seed=self.cfg.optim.seed,
+            check_mask=checker_mask,
+            intermediate_vis=self.cfg.log.vis_diffusion_steps,
+
+            num_inference_steps=num_inference_steps, # added by JA
+
+            # for prompt to prompt
+            controller=controller,
+            latents_to_reuse=latents,
+            run_baseline=False
+        )
 
         # JA: From https://velog.io/@pindum/PyTorch-interpolation
         # interpolation이 무엇인가 하면 사전적으로는 보간이라는 뜻을 가지며 작은 사이즈의 이미지를 큰 사이즈로 키울 때 사용된다.
