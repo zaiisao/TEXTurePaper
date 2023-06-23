@@ -85,15 +85,19 @@ def latent2image(vae, latents):
     return image
 
 
-def init_latent(latent, model, height, width, generator, batch_size):
+def init_latent(latent, model, height, width, generator, batch_size, is_depth=False):
+    in_channels = model.unet.config.in_channels
+    if is_depth:
+        in_channels -= 1
+
     if latent is None:
         latent = torch.randn(
             #(1, model.unet.in_channels, height // 8, width // 8),
-            (1, model.unet.config.in_channels, height // 8, width // 8),
+            (1, in_channels, height // 8, width // 8),
             generator=generator,
         )
     #latents = latent.expand(batch_size,  model.unet.in_channels, height // 8, width // 8).to(model.device)
-    latents = latent.expand(batch_size,  model.unet.config.in_channels, height // 8, width // 8).to(model.device)
+    latents = latent.expand(batch_size,  in_channels, height // 8, width // 8).to(model.device)
     return latent, latents
 
 
@@ -138,6 +142,7 @@ def text2image_ldm_stable(
     generator: Optional[torch.Generator] = None,
     latent: Optional[torch.FloatTensor] = None,
     low_resource: bool = False,
+    is_depth: bool = False,
 ):
     register_attention_control(model, controller)
     height = width = 512
@@ -160,7 +165,7 @@ def text2image_ldm_stable(
     context = [uncond_embeddings, text_embeddings]
     if not low_resource:
         context = torch.cat(context)
-    latent, latents = init_latent(latent, model, height, width, generator, batch_size)
+    latent, latents = init_latent(latent, model, height, width, generator, batch_size, is_depth=is_depth)
     
     # set timesteps
     # extra_set_kwargs = {"offset": 1}

@@ -16,7 +16,7 @@ from tqdm.auto import tqdm
 import cv2
 import numpy as np
 from PIL import Image
-from .prompt_to_prompt.ptp_utils import register_attention_control
+from .prompt_to_prompt.ptp_utils import register_attention_control, init_latent
 
 
 class StableDiffusion(nn.Module):
@@ -179,10 +179,13 @@ class StableDiffusion(nn.Module):
     def img2img_step(self, text_embeddings, inputs, depth_mask, guidance_scale=100, strength=0.5,
                      num_inference_steps=50, update_mask=None, latent_mode=False, check_mask=None,
                      fixed_seed=None, check_mask_iters=0.5, intermediate_vis=False,
-                     latents_to_reuse=None, controller=None, run_baseline=False):
+                     latents_to_reuse=None, controller=None, run_baseline=False, generator=None):
         # input is 1 3 512 512: Q_t =cropped_rgb_render from renderer
         # depth_mask is 1 1 512 512
         # text_embeddings is 2 512
+
+        height = width = 512
+        batch_size = 2 if latents_to_reuse is not None else 1 # JA: ugly hack...
 
         register_attention_control(self, controller)
 
@@ -221,7 +224,7 @@ class StableDiffusion(nn.Module):
                 else: #MJ: update_mask= None:  assumes not inpainting: get the random noise latents at timestep = [981] from the input Q_t
                     latents = self.scheduler.add_noise(latents, noise, latent_timestep) #MJ: we not use this case, because update_mask is not None
 
-            depth_mask = torch.cat([depth_mask] * 2)
+            depth_mask = torch.cat([depth_mask] * 2 * batch_size)
             #MJ:
             # When applying M_depth (case B), the noised latent is guided by the current depth Dt 
             # while when applying M_paint (case A), the sampling process is tasked with
@@ -331,6 +334,8 @@ class StableDiffusion(nn.Module):
                 latents = latents_to_reuse
             else:
                 latents = self.encode_imgs(pred_rgb_512) #MJ: latents = the vae encoded version of  inputs =Q_t = cropped_rgb_render
+
+            latent, latents = init_latent(latents, self, height, width, generator, batch_size, is_depth=True)
             
             if self.use_inpaint: #Using in_painting needs update_mask set; using inpaint means using update_mask
                 update_mask_512 = F.interpolate(update_mask, (512, 512))
@@ -357,7 +362,7 @@ class StableDiffusion(nn.Module):
             return target_rgb, target_latents
         else:
             #return target_rgb, intermediate_results
-            return target_rgb, intermediate_results, target_latents
+            return target_rgb, intermediate_results, latent
 
     def train_step(self, text_embeddings, inputs, depth_mask, guidance_scale=100):
 

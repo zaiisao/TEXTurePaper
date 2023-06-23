@@ -387,6 +387,7 @@ class TEXTure:
                                  'checkerboard_input')
         self.diffusion.use_inpaint = self.cfg.guide.use_inpainting and self.paint_step > 1
 
+        g_cpu = torch.Generator().manual_seed(self.cfg.optim.seed)
         controller = AttentionStore()
 
         # JA: In the original code num_inference_steps is accepted as an argument in the below function
@@ -409,7 +410,8 @@ class TEXTure:
             # for prompt to prompt
             controller=controller,
             latents_to_reuse=None,
-            run_baseline=False
+            run_baseline=False,
+            generator=g_cpu
         )
 
         # JA: cropped_rgb_output is the stable diffusion-generated image from the prompt text_z
@@ -417,7 +419,7 @@ class TEXTure:
         self.log_diffusion_steps(steps_vis)
 
         prompts = [text_string, text_string]
-        equalizer = get_equalizer(prompts[1], tuple(self.view_dirs), (5,), self.diffusion.tokenizer)
+        equalizer = get_equalizer(prompts[1], tuple(self.view_dirs), (4,), self.diffusion.tokenizer)
         controller = AttentionReweight(
             prompts, num_inference_steps, cross_replace_steps=.8,
             self_replace_steps=.4,

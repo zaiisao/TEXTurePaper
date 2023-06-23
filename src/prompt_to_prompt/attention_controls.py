@@ -4,9 +4,11 @@ from diffusers import StableDiffusionPipeline
 import torch.nn.functional as nnf
 import numpy as np
 import abc
-from . import ptp_utils
-from . import seq_aligner
 from PIL import Image
+
+if __name__ != "__main__":
+    from . import ptp_utils
+    from . import seq_aligner
 
 LOW_RESOURCE = False 
 NUM_DIFFUSION_STEPS = 50
@@ -277,25 +279,36 @@ def run_and_display(prompts, controller, latent=None, run_baseline=False, genera
         print("w.o. prompt-to-prompt")
         images, latent = run_and_display(prompts, EmptyControl(), latent=latent, run_baseline=False, generator=generator)
         print("with prompt-to-prompt")
-    images, x_t = ptp_utils.text2image_ldm_stable(ldm_stable, prompts, controller, latent=latent, num_inference_steps=NUM_DIFFUSION_STEPS, guidance_scale=GUIDANCE_SCALE, generator=generator, low_resource=LOW_RESOURCE)
+    images, x_t = ptp_utils.text2image_ldm_stable(
+        ldm_stable, prompts, controller,
+        latent=latent,
+        num_inference_steps=NUM_DIFFUSION_STEPS,
+        guidance_scale=GUIDANCE_SCALE,
+        generator=generator,
+        low_resource=LOW_RESOURCE
+    )
+
     ptp_utils.view_images(images)
     return images, x_t # JA: x_t is z_T, initial random noise in random space
 
 if __name__ == "__main__":
+    import ptp_utils
+    import seq_aligner
+
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
     ldm_stable = StableDiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-2").to(device)
     tokenizer = ldm_stable.tokenizer
 
     g_cpu = torch.Generator().manual_seed(1)
     prompts = ["The front side of a person"]
-    controller = AttentionStore()
+    controller = AttentionStore(tokenizer=tokenizer, device=device)
     image, x_t = run_and_display(prompts, controller, latent=None, run_baseline=False, generator=g_cpu)
     show_cross_attention(controller, res=16, from_where=("up", "down"))
 
     prompts = ["The front side of a person",
            "The back side of a person"]
 
-    controller = AttentionReplace(prompts, NUM_DIFFUSION_STEPS, cross_replace_steps=.8, self_replace_steps=0.4)
+    controller = AttentionReplace(prompts, NUM_DIFFUSION_STEPS, cross_replace_steps=.8, self_replace_steps=0.4, tokenizer=tokenizer, device=device)
     _ = run_and_display(prompts, controller, latent=x_t, run_baseline=True)
 
     # g_cpu = torch.Generator().manual_seed(3)
